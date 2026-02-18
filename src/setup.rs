@@ -12,6 +12,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 const MAX_PANES: usize = 10;
+const ACCENT: Color = Color::Cyan;
+const ACCENT_DIM: Color = Color::DarkGray;
+const ERROR: Color = Color::Red;
+const WARN: Color = Color::Yellow;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 struct PaneKey {
@@ -267,13 +271,13 @@ impl SetupState {
             .collect();
 
         let title = match self.focus {
-            Focus::Hosts => "▶ Hosts",
+            Focus::Hosts => "Hosts",
             _ => "Hosts",
         };
 
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(title))
-            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+            .block(panel_block(title, self.focus == Focus::Hosts))
+            .highlight_style(highlight_style(self.focus == Focus::Hosts))
             .highlight_symbol("▸ ");
 
         f.render_stateful_widget(list, area, &mut list_state);
@@ -281,11 +285,11 @@ impl SetupState {
 
     fn draw_tree(&mut self, f: &mut Frame, area: Rect) {
         let title = match self.focus {
-            Focus::Tree => "▶ Sessions / Windows",
+            Focus::Tree => "Sessions / Windows",
             _ => "Sessions / Windows",
         };
 
-        let block = Block::default().borders(Borders::ALL).title(title);
+        let block = panel_block(title, self.focus == Focus::Tree);
 
         let Some(host) = self.current_host() else {
             f.render_widget(block, area);
@@ -321,7 +325,7 @@ impl SetupState {
 
             let list = List::new(items)
                 .block(block)
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_style(highlight_style(self.focus == Focus::Tree))
                 .highlight_symbol("▸ ");
             f.render_stateful_widget(list, area, &mut state);
         } else {
@@ -332,7 +336,7 @@ impl SetupState {
 
     fn draw_panes(&mut self, f: &mut Frame, area: Rect) {
         let title = match self.focus {
-            Focus::Panes => "▶ Panes",
+            Focus::Panes => "Panes",
             _ => "Panes",
         };
 
@@ -344,11 +348,10 @@ impl SetupState {
         let pane_list_area = chunks[0];
         let preview_area = chunks[1];
 
-        let block = Block::default().borders(Borders::ALL).title(format!(
-            "{title} ({}/{})",
-            self.selection.len(),
-            MAX_PANES
-        ));
+        let block = panel_block(
+            &format!("{title} ({}/{})", self.selection.len(), MAX_PANES),
+            self.focus == Focus::Panes,
+        );
 
         let Some((host, window_key)) = self.current_window() else {
             let paragraph = Paragraph::new("Select a window to see panes.").block(block);
@@ -384,7 +387,7 @@ impl SetupState {
 
         let list = List::new(items)
             .block(block)
-            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+            .highlight_style(highlight_style(self.focus == Focus::Panes))
             .highlight_symbol("▸ ");
         f.render_stateful_widget(list, pane_list_area, &mut state);
 
@@ -397,7 +400,7 @@ impl SetupState {
         } else {
             "Preview"
         };
-        let block = Block::default().borders(Borders::ALL).title(title);
+        let block = panel_block(title, false);
         let body = match &self.preview {
             Some(text) => Text::from(text.clone()),
             None => Text::from("Select a pane to preview."),
@@ -407,16 +410,18 @@ impl SetupState {
     }
 
     fn draw_footer(&self, f: &mut Frame, area: Rect) {
-        let mut spans = vec![
-            Span::raw("Tab: focus  "),
-            Span::raw("Arrows: navigate  "),
-            Span::raw("Space: toggle  "),
-            Span::raw("a: add host  e: edit  d: delete  "),
-            Span::raw("s: save  q: cancel"),
-        ];
+        let mut spans = Vec::new();
+        spans.extend(hint("Tab", "focus"));
+        spans.extend(hint("Arrows", "navigate"));
+        spans.extend(hint("Space", "toggle"));
+        spans.extend(hint("a", "add"));
+        spans.extend(hint("e", "edit"));
+        spans.extend(hint("d", "delete"));
+        spans.extend(hint("s", "save"));
+        spans.extend(hint("q", "cancel"));
         if let Some(status) = &self.status {
             spans.push(Span::raw("  |  "));
-            spans.push(Span::styled(status.clone(), Style::default().fg(Color::Yellow)));
+            spans.push(Span::styled(status.clone(), Style::default().fg(WARN)));
         }
         let paragraph = Paragraph::new(Line::from(spans)).block(Block::default());
         f.render_widget(paragraph, area);
@@ -436,7 +441,7 @@ impl SetupState {
             FormMode::Add => "Add Host",
             FormMode::Edit(_) => "Edit Host",
         };
-        let block = Block::default().borders(Borders::ALL).title(title);
+        let block = panel_block(title, true);
 
         let mut lines = Vec::new();
         lines.push(input_line("Name", &form.name, form.field == FormField::Name));
@@ -456,7 +461,7 @@ impl SetupState {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 format!("Error: {error}"),
-                Style::default().fg(Color::Red),
+                Style::default().fg(ERROR).add_modifier(Modifier::BOLD),
             )));
         }
 
@@ -471,7 +476,7 @@ impl SetupState {
             .get(index)
             .map(|host| host.name.as_str())
             .unwrap_or("host");
-        let block = Block::default().borders(Borders::ALL).title("Delete Host");
+        let block = panel_block("Delete Host", true);
         let lines = vec![
             Line::from(format!("Delete host '{name}'?")),
             Line::from(""),
@@ -1021,8 +1026,13 @@ fn is_local_host(host: &HostConfig) -> bool {
 
 fn input_line(label: &str, value: &str, active: bool) -> Line<'static> {
     let prefix = if active { ">" } else { " " };
+    let label_style = if active {
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT_DIM)
+    };
     Line::from(vec![
-        Span::raw(format!("{prefix} {label}: ")),
+        Span::styled(format!("{prefix} {label}: "), label_style),
         Span::styled(
             value.to_string(),
             if active {
@@ -1032,6 +1042,41 @@ fn input_line(label: &str, value: &str, active: bool) -> Line<'static> {
             },
         ),
     ])
+}
+
+fn panel_block(title: &str, focused: bool) -> Block<'static> {
+    let color = if focused { ACCENT } else { ACCENT_DIM };
+    let title = Line::from(Span::styled(
+        title.to_string(),
+        Style::default()
+            .fg(color)
+            .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
+    ));
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(color))
+        .title(title)
+}
+
+fn highlight_style(focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(ACCENT)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    }
+}
+
+fn hint(key: &str, label: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(
+            key.to_string(),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!(" {label}  ")),
+    ]
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
