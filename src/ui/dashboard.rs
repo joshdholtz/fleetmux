@@ -126,10 +126,10 @@ fn build_title(
         ));
     }
     if compact {
-        if let Some(age) = last_update_age(pane) {
+        if let Some(age) = last_change_age(pane) {
             spans.push(Span::raw(" · "));
             spans.push(Span::styled(
-                age,
+                format!("chg {age}"),
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -302,8 +302,8 @@ fn build_raw_content(
         ""
     };
     raw.push_str(&format!("Status: {status_label} {activity}\n"));
-    if let Some(age) = last_update_age(pane) {
-        raw.push_str(&format!("Updated: {age} ago\n"));
+    if let Some(age) = last_change_age(pane) {
+        raw.push_str(&format!("Changed: {age} ago\n"));
     }
 
     if let Some(capture) = &pane.last_capture {
@@ -331,8 +331,8 @@ fn build_raw_content(
     raw
 }
 
-fn last_update_age(pane: &crate::model::PaneState) -> Option<String> {
-    pane.last_update.map(|instant| format_duration(instant.elapsed()))
+fn last_change_age(pane: &crate::model::PaneState) -> Option<String> {
+    pane.last_change.map(|instant| format_duration(instant.elapsed()))
 }
 
 fn format_duration(duration: std::time::Duration) -> String {
