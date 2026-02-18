@@ -55,7 +55,7 @@ First run opens the in‑app setup UI and saves:
 
 ## Setup flow
 
-FleetMux uses a full‑screen in‑app setup UI for both host management and pane selection.
+FleetMux uses a full‑screen in‑app setup UI for host management, pane selection, and settings toggles.
 On first run it opens automatically; later you can press `s` from the dashboard to reopen it.
 
 Selection is a tree:
@@ -68,6 +68,7 @@ Previously selected panes are preselected if they still exist. If `local.enabled
 local tmux server shows up as an extra host named by `local.name`.
 
 While selecting panes, press `m` to toggle a bookmark (shown in the bottom strip of the dashboard).
+Use the Settings panel (right column) to toggle compact mode, ANSI rendering, and notification options.
 
 ## Diagnostics
 

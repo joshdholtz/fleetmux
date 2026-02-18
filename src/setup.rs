@@ -41,6 +41,12 @@ struct PaneSelection {
 }
 
 #[derive(Debug, Clone)]
+struct SettingItem {
+    label: &'static str,
+    enabled: bool,
+}
+
+#[derive(Debug, Clone)]
 struct TreeItem {
     session: String,
     window: Option<u32>,
@@ -60,6 +66,7 @@ enum Focus {
     Hosts,
     Tree,
     Panes,
+    Settings,
 }
 
 #[derive(Debug)]
@@ -111,6 +118,7 @@ pub struct SetupState {
     host_index: usize,
     tree_index: usize,
     pane_index: usize,
+    setting_index: usize,
     selection: HashSet<PaneKey>,
     bookmarks: HashSet<PaneKey>,
     host_data: HashMap<String, HostData>,
@@ -152,6 +160,7 @@ impl SetupState {
             host_index: 0,
             tree_index: 0,
             pane_index: 0,
+            setting_index: 0,
             selection,
             bookmarks,
             host_data: HashMap::new(),
@@ -252,7 +261,13 @@ impl SetupState {
             KeyCode::Up | KeyCode::Char('k') => self.move_up(),
             KeyCode::Down | KeyCode::Char('j') => self.move_down(),
             KeyCode::Enter => self.handle_enter(),
-            KeyCode::Char(' ') => self.toggle_pane_selection(),
+            KeyCode::Char(' ') => {
+                if self.focus == Focus::Settings {
+                    self.toggle_setting();
+                } else {
+                    self.toggle_pane_selection();
+                }
+            }
             KeyCode::Char('m') => self.toggle_bookmark(),
             KeyCode::Char('a') => self.open_add_host(),
             KeyCode::Char('e') => self.open_edit_host(),
@@ -355,11 +370,16 @@ impl SetupState {
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .constraints([
+                Constraint::Percentage(50),
+                Constraint::Percentage(35),
+                Constraint::Length(6),
+            ])
             .split(area);
 
         let pane_list_area = chunks[0];
         let preview_area = chunks[1];
+        let settings_area = chunks[2];
 
         let block = panel_block(
             &format!("{title} ({}/{})", self.selection.len(), MAX_PANES),
@@ -370,6 +390,7 @@ impl SetupState {
             let paragraph = Paragraph::new("Select a window to see panes.").block(block);
             f.render_widget(paragraph, pane_list_area);
             self.draw_preview(f, preview_area);
+            self.draw_settings(f, settings_area);
             return;
         };
 
@@ -412,6 +433,7 @@ impl SetupState {
         f.render_stateful_widget(list, pane_list_area, &mut state);
 
         self.draw_preview(f, preview_area);
+        self.draw_settings(f, settings_area);
     }
 
     fn draw_preview(&self, f: &mut Frame, area: Rect) {
@@ -427,6 +449,37 @@ impl SetupState {
         };
         let paragraph = Paragraph::new(body).block(block).wrap(Wrap { trim: false });
         f.render_widget(paragraph, area);
+    }
+
+    fn draw_settings(&self, f: &mut Frame, area: Rect) {
+        let block = panel_block("Settings", self.focus == Focus::Settings);
+        let settings = self.settings_items();
+        let items: Vec<ListItem> = settings
+            .iter()
+            .map(|item| {
+                let value = if item.enabled { "on" } else { "off" };
+                let value_style = if item.enabled {
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(ACCENT_DIM)
+                };
+                let line = Line::from(vec![
+                    Span::raw(format!("{}: ", item.label)),
+                    Span::styled(value.to_string(), value_style),
+                ]);
+                ListItem::new(line)
+            })
+            .collect();
+
+        let mut state = ListState::default();
+        if !items.is_empty() {
+            state.select(Some(self.setting_index.min(items.len() - 1)));
+        }
+        let list = List::new(items)
+            .block(block)
+            .highlight_style(highlight_style(self.focus == Focus::Settings))
+            .highlight_symbol("▸ ");
+        f.render_stateful_widget(list, area, &mut state);
     }
 
     fn draw_footer(&self, f: &mut Frame, area: Rect) {
@@ -674,7 +727,8 @@ impl SetupState {
         self.focus = match self.focus {
             Focus::Hosts => Focus::Tree,
             Focus::Tree => Focus::Panes,
-            Focus::Panes => Focus::Hosts,
+            Focus::Panes => Focus::Settings,
+            Focus::Settings => Focus::Hosts,
         };
     }
 
@@ -683,6 +737,7 @@ impl SetupState {
             Focus::Hosts => Focus::Hosts,
             Focus::Tree => Focus::Hosts,
             Focus::Panes => Focus::Tree,
+            Focus::Settings => Focus::Panes,
         };
     }
 
@@ -690,7 +745,8 @@ impl SetupState {
         self.focus = match self.focus {
             Focus::Hosts => Focus::Tree,
             Focus::Tree => Focus::Panes,
-            Focus::Panes => Focus::Panes,
+            Focus::Panes => Focus::Settings,
+            Focus::Settings => Focus::Settings,
         };
     }
 
@@ -728,6 +784,11 @@ impl SetupState {
                 if self.pane_index > 0 {
                     self.pane_index -= 1;
                     self.request_preview();
+                }
+            }
+            Focus::Settings => {
+                if self.setting_index > 0 {
+                    self.setting_index -= 1;
                 }
             }
         }
@@ -769,6 +830,12 @@ impl SetupState {
                     }
                 }
             }
+            Focus::Settings => {
+                let len = self.settings_items().len();
+                if self.setting_index + 1 < len {
+                    self.setting_index += 1;
+                }
+            }
         }
     }
 
@@ -784,6 +851,7 @@ impl SetupState {
                 }
             }
             Focus::Panes => {}
+            Focus::Settings => self.toggle_setting(),
         }
     }
 
@@ -828,6 +896,43 @@ impl SetupState {
             self.bookmarks.remove(&key);
         } else {
             self.bookmarks.insert(key);
+        }
+    }
+
+    fn settings_items(&self) -> Vec<SettingItem> {
+        vec![
+            SettingItem {
+                label: "Compact mode",
+                enabled: self.config.ui.compact,
+            },
+            SettingItem {
+                label: "ANSI rendering",
+                enabled: self.config.ui.ansi,
+            },
+            SettingItem {
+                label: "Join wrapped lines",
+                enabled: self.config.ui.join_lines,
+            },
+            SettingItem {
+                label: "Bell on stop",
+                enabled: self.config.ui.bell_on_stop,
+            },
+            SettingItem {
+                label: "macOS notify on stop",
+                enabled: self.config.ui.macos_notification_on_stop,
+            },
+        ]
+    }
+
+    fn toggle_setting(&mut self) {
+        match self.setting_index {
+            0 => self.config.ui.compact = !self.config.ui.compact,
+            1 => self.config.ui.ansi = !self.config.ui.ansi,
+            2 => self.config.ui.join_lines = !self.config.ui.join_lines,
+            3 => self.config.ui.bell_on_stop = !self.config.ui.bell_on_stop,
+            4 => self.config.ui.macos_notification_on_stop =
+                !self.config.ui.macos_notification_on_stop,
+            _ => {}
         }
     }
 
