@@ -260,6 +260,9 @@ async fn handle_dashboard_event(
                 set_label_for_focused(state, terminal, config_path)?;
                 *config = state.config.clone();
             }
+            KeyCode::Char('!') => {
+                toggle_attention_for_focused(state);
+            }
             KeyCode::Char('b') => {
                 toggle_bookmark_for_focused(state, config_path)?;
                 *config = state.config.clone();
@@ -297,8 +300,10 @@ fn move_focus(state: &mut AppState, direction: FocusMove) {
     if count == 0 {
         return;
     }
+    let prev = state.focused;
     if matches!(direction, FocusMove::Next) {
         state.focused = (state.focused + 1) % count;
+        clear_attention_on_focus(state, prev);
         return;
     }
 
@@ -319,6 +324,19 @@ fn move_focus(state: &mut AppState, direction: FocusMove) {
         index = count - 1;
     }
     state.focused = index;
+    clear_attention_on_focus(state, prev);
+}
+
+fn clear_attention_on_focus(state: &mut AppState, prev: usize) {
+    if state.focused == prev {
+        return;
+    }
+    if state.attention.len() != state.panes.len() {
+        state.attention = vec![false; state.panes.len()];
+    }
+    if let Some(flag) = state.attention.get_mut(state.focused) {
+        *flag = false;
+    }
 }
 
 fn grid_dimensions(count: usize) -> (usize, usize) {
@@ -453,6 +471,20 @@ fn toggle_bookmark_for_focused(state: &mut AppState, config_path: &Path) -> Resu
     }
     config::save(config_path, &state.config)?;
     Ok(())
+}
+
+fn toggle_attention_for_focused(state: &mut AppState) {
+    let count = state.panes.len();
+    if count == 0 {
+        return;
+    }
+    if state.attention.len() != count {
+        state.attention = vec![false; count];
+    }
+    let index = state.focused.min(count - 1);
+    if let Some(flag) = state.attention.get_mut(index) {
+        *flag = !*flag;
+    }
 }
 
 fn bookmark_index_from_key(ch: char) -> Option<usize> {

@@ -133,6 +133,7 @@ persist across restarts.
 - `r`: reload config
 - `e`: edit config
 - `n`: set label for focused pane
+- `!`: mark attention on focused pane
 - `b`: toggle bookmark for focused pane
 - `1-9`/`0`: jump to bookmarks 1–10
 - `s`: open setup

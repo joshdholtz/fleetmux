@@ -85,6 +85,7 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         title_color,
         state.config.ui.compact,
         focused,
+        state.attention.get(index).copied().unwrap_or(false),
     );
 
     let block = Block::default()
@@ -119,6 +120,7 @@ fn build_title(
     title_color: Color,
     compact: bool,
     focused: bool,
+    attention: bool,
 ) -> Line<'static> {
     let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
     let pane_id = format_pane_id(&pane.tracked.pane_id);
@@ -129,6 +131,15 @@ fn build_title(
     spans.push(Span::styled(host.to_string(), host_style));
     spans.push(Span::raw(" "));
     spans.push(Span::styled(session_window, Style::default().fg(title_color)));
+    if attention {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            "● ATTN".to_string(),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
     let indicator = activity_indicator(pane);
     if !indicator.is_empty() {
         let indicator_style = indicator_style(pane, &indicator);
@@ -483,6 +494,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  h/j/k/l or arrows   Move focus"),
         Line::from("  Tab   Next tile"),
         Line::from("  Enter   Take control"),
+        Line::from("  !   Mark attention"),
         Line::from("  b   Toggle bookmark"),
         Line::from("  1-9/0   Jump to bookmark"),
         Line::from("  r   Reload config"),

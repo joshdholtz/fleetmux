@@ -105,6 +105,7 @@ pub struct AppState {
     pub host_colors: HashMap<String, HostColors>,
     pub activity_states: Vec<ActivityState>,
     pub notify_snooze_until: Option<Instant>,
+    pub attention: Vec<bool>,
 }
 
 impl AppState {
@@ -115,6 +116,7 @@ impl AppState {
             .cloned()
             .map(PaneState::new)
             .collect();
+        let pane_count = panes.len();
         let activity_states = panes.iter().map(PaneState::activity_state).collect();
         Self {
             config,
@@ -125,6 +127,7 @@ impl AppState {
             host_colors,
             activity_states,
             notify_snooze_until: None,
+            attention: vec![false; pane_count],
         }
     }
 
