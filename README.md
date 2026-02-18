@@ -3,6 +3,23 @@
 FleetMux is a Rust TUI that turns your scattered tmux panes into a single mission‑control dashboard.
 Think: distributed tmux, read‑only by default, with one‑key jump‑in when you need full control.
 
+```
+┌──────────────────────────── FleetMux Dashboard ────────────────────────────┐
+│  local:dev ─ pane 1                buildbox:ci ─ pane 7                     │
+│  ┌──────────────────────────┐      ┌──────────────────────────┐             │
+│  │  Status: OK              │      │  Status: OK              │             │
+│  │  make test               │      │  cargo build             │             │
+│  │  ...                     │      │  ...                     │             │
+│  └──────────────────────────┘      └──────────────────────────┘             │
+│                                                                            │
+│  staging:api ─ pane 3             prod:jobs ─ pane 9                        │
+│  ┌──────────────────────────┐      ┌──────────────────────────┐             │
+│  │  Status: OK              │      │  Status: STALE           │             │
+│  │  node server.js          │      │  ...                     │             │
+│  └──────────────────────────┘      └──────────────────────────┘             │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Why this exists
 
 - You have multiple machines running multiple tmux sessions.
