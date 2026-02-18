@@ -99,6 +99,7 @@ See `config.example.toml` for a full example. Common fields:
 - `ui.macos_notify_ignore_apps`: app names that suppress notifications when frontmost
 - `ui.notify_snooze_sec`: suppress stop-change alerts for N seconds after “take control”
 - macOS notifications require granting Automation access to `osascript`/System Events when prompted.
+- If frontmost app detection fails, FleetMux will still send notifications.
 - `ssh.connect_timeout_sec`: SSH connection timeout
 - `ssh.path_extra`: extra PATH entries for tmux on remote hosts
 - `local.enabled`: include local tmux in discovery/selection

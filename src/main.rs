@@ -188,7 +188,7 @@ async fn main() -> Result<()> {
                                         .macos_notify_ignore_apps
                                         .iter()
                                         .any(|name| name.eq_ignore_ascii_case(&app)),
-                                    _ => false,
+                                    _ => true,
                                 };
                             }
                             if allow_notify {
