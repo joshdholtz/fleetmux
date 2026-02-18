@@ -73,6 +73,7 @@ pub struct SshConfig {
     pub connect_timeout_sec: u64,
     pub control_master: bool,
     pub control_persist_sec: u64,
+    pub path_extra: Vec<String>,
 }
 
 impl Default for SshConfig {
@@ -81,6 +82,10 @@ impl Default for SshConfig {
             connect_timeout_sec: 2,
             control_master: true,
             control_persist_sec: 600,
+            path_extra: vec![
+                "/usr/local/bin".to_string(),
+                "/opt/homebrew/bin".to_string(),
+            ],
         }
     }
 }

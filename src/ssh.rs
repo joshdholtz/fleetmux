@@ -81,7 +81,8 @@ pub async fn run_ssh_command(target: &str, ssh: &SshConfig, remote_cmd: &str) ->
     for arg in build_ssh_args(ssh) {
         cmd.arg(arg);
     }
-    cmd.arg(target).arg(remote_cmd);
+    let wrapped = wrap_remote_cmd(ssh, remote_cmd);
+    cmd.arg(target).arg(wrapped);
     cmd.stdin(Stdio::null());
     let output = cmd
         .output()
@@ -107,7 +108,8 @@ pub fn run_ssh_command_blocking(
     for arg in build_ssh_args(ssh) {
         cmd.arg(arg);
     }
-    cmd.arg(target).arg(remote_cmd);
+    let wrapped = wrap_remote_cmd(ssh, remote_cmd);
+    cmd.arg(target).arg(wrapped);
     cmd.stdin(Stdio::null());
     let output = cmd
         .output()
@@ -161,4 +163,12 @@ pub fn build_ssh_args(ssh: &SshConfig) -> Vec<String> {
 
 fn control_path() -> String {
     "/tmp/fleetmux-%r@%h:%p".to_string()
+}
+
+pub fn wrap_remote_cmd(ssh: &SshConfig, remote_cmd: &str) -> String {
+    if ssh.path_extra.is_empty() {
+        return remote_cmd.to_string();
+    }
+    let extra = ssh.path_extra.join(":");
+    format!("PATH=\"$PATH:{extra}\" {remote_cmd}")
 }

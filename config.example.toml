@@ -19,6 +19,7 @@ default_host_palette = [
 connect_timeout_sec = 2
 control_master = true
 control_persist_sec = 600
+path_extra = ["/usr/local/bin", "/opt/homebrew/bin"]
 
 [[hosts]]
 name = "buildbox"

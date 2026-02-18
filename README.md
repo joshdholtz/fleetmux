@@ -37,6 +37,7 @@ See `config.example.toml` for a complete example. The most common fields:
 - `ui.refresh_ms`: polling interval in milliseconds
 - `ui.lines`: number of captured lines per pane
 - `ssh.connect_timeout_sec`: SSH connection timeout
+- `ssh.path_extra`: extra PATH entries for locating tmux on remote hosts
 - `hosts`: logical hosts with one or more SSH targets
 - `tracked`: tmux panes to monitor
 

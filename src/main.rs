@@ -236,6 +236,7 @@ async fn take_control(
         window = pane.tracked.window,
         pane_id = pane.tracked.pane_id
     );
+    let remote_cmd = ssh::wrap_remote_cmd(&state.config.ssh, &remote_cmd);
 
     ui::exit_terminal(terminal)?;
 
