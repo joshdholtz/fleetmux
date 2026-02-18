@@ -401,29 +401,17 @@ fn activity_indicator(pane: &crate::model::PaneState) -> String {
     if pane.status != PaneStatus::Ok {
         return String::new();
     }
-    let now = std::time::Instant::now();
-    let update_age = pane.last_update.map(|t| now.duration_since(t));
-    let change_age = pane.last_change.map(|t| now.duration_since(t));
-
-    if let Some(age) = change_age {
-        if age <= ACTIVE_WINDOW {
-            return spinner_frame().to_string();
-        }
-        if age >= IDLE_AFTER {
-            return "idle".to_string();
-        }
+    let Some(last) = pane.last_change else {
+        return String::new();
+    };
+    let age = last.elapsed();
+    if age <= ACTIVE_WINDOW {
+        spinner_frame().to_string()
+    } else if age >= IDLE_AFTER {
+        "idle".to_string()
+    } else {
+        String::new()
     }
-
-    if let Some(age) = update_age {
-        if age <= ACTIVE_WINDOW {
-            return spinner_frame().to_string();
-        }
-        if age >= IDLE_AFTER {
-            return "idle".to_string();
-        }
-    }
-
-    String::new()
 }
 
 fn spinner_frame() -> &'static str {
