@@ -63,14 +63,19 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
     let host_style = Style::default()
         .fg(border_color)
         .add_modifier(Modifier::BOLD);
-    let title = build_title(pane.tracked.host.as_str(), pane, host_style);
+    let title = build_title(
+        pane.tracked.host.as_str(),
+        pane,
+        host_style,
+        state.config.ui.compact,
+    );
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border_style)
         .title(title);
 
-    let content = build_content(state, index);
+    let content = build_content(state, index, state.config.ui.compact);
     let paragraph = Paragraph::new(content)
         .block(block)
         .wrap(Wrap { trim: false });
@@ -78,18 +83,47 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
     f.render_widget(paragraph, area);
 }
 
-fn build_title(host: &str, pane: &crate::model::PaneState, host_style: Style) -> Line<'static> {
+fn build_title(
+    host: &str,
+    pane: &crate::model::PaneState,
+    host_style: Style,
+    compact: bool,
+) -> Line<'static> {
     let pane_id = format!("{}:{}.{}", pane.tracked.session, pane.tracked.window, pane.tracked.pane_id);
     let mut spans = vec![Span::styled(host.to_string(), host_style), Span::raw(" ")];
     spans.push(Span::raw(pane_id));
-    if let Some(label) = &pane.tracked.label {
+    if compact {
+        let status = match pane.status {
+            PaneStatus::Down => Some("DOWN"),
+            PaneStatus::Stale => Some("STALE"),
+            PaneStatus::Ok => None,
+        };
+        if let Some(status) = status {
+            spans.push(Span::raw(" "));
+            spans.push(Span::raw(format!("[{status}]")));
+        }
+        let mut extra = pane.tracked.label.clone();
+        if extra.is_none() {
+            if let Some(capture) = &pane.last_capture {
+                if !capture.title.is_empty() {
+                    extra = Some(capture.title.clone());
+                } else if !capture.command.is_empty() {
+                    extra = Some(capture.command.clone());
+                }
+            }
+        }
+        if let Some(extra) = extra {
+            spans.push(Span::raw(" "));
+            spans.push(Span::raw(extra));
+        }
+    } else if let Some(label) = &pane.tracked.label {
         spans.push(Span::raw(" "));
         spans.push(Span::raw(label.clone()));
     }
     Line::from(spans)
 }
 
-fn build_content(state: &AppState, index: usize) -> Vec<Line<'static>> {
+fn build_content(state: &AppState, index: usize, compact: bool) -> Vec<Line<'static>> {
     let pane = &state.panes[index];
     let mut lines = Vec::new();
 
@@ -98,31 +132,51 @@ fn build_content(state: &AppState, index: usize) -> Vec<Line<'static>> {
         PaneStatus::Down => "DOWN",
         PaneStatus::Stale => "STALE",
     };
-    let activity = if state.is_active(index) { "*" } else { "" };
-    let status_line = format!("Status: {status_label} {activity}");
-    lines.push(Line::from(status_line));
-
-    if let Some(capture) = &pane.last_capture {
-        if !capture.command.is_empty() {
-            lines.push(Line::from(format!("Cmd: {}", capture.command)));
-        } else if !capture.title.is_empty() {
-            lines.push(Line::from(format!("Title: {}", capture.title)));
+    if compact {
+        if pane.status != PaneStatus::Ok {
+            let status_line = format!("Status: {status_label}");
+            lines.push(Line::from(status_line));
         }
-        if let Some(label) = &pane.tracked.label {
-            lines.push(Line::from(format!("Label: {label}")));
+        if let Some(capture) = &pane.last_capture {
+            for line in &capture.lines {
+                lines.push(Line::from(line.clone()));
+            }
+        } else {
+            lines.push(Line::from("Waiting for data..."));
         }
-        lines.push(Line::from(""));
-        for line in &capture.lines {
-            lines.push(Line::from(line.clone()));
+        if pane.status == PaneStatus::Down {
+            if let Some(err) = &pane.error {
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Error: {err}")));
+            }
         }
     } else {
-        lines.push(Line::from("Waiting for data..."));
-    }
+        let activity = if state.is_active(index) { "*" } else { "" };
+        let status_line = format!("Status: {status_label} {activity}");
+        lines.push(Line::from(status_line));
 
-    if pane.status == PaneStatus::Down {
-        if let Some(err) = &pane.error {
+        if let Some(capture) = &pane.last_capture {
+            if !capture.command.is_empty() {
+                lines.push(Line::from(format!("Cmd: {}", capture.command)));
+            } else if !capture.title.is_empty() {
+                lines.push(Line::from(format!("Title: {}", capture.title)));
+            }
+            if let Some(label) = &pane.tracked.label {
+                lines.push(Line::from(format!("Label: {label}")));
+            }
             lines.push(Line::from(""));
-            lines.push(Line::from(format!("Error: {err}")));
+            for line in &capture.lines {
+                lines.push(Line::from(line.clone()));
+            }
+        } else {
+            lines.push(Line::from("Waiting for data..."));
+        }
+
+        if pane.status == PaneStatus::Down {
+            if let Some(err) = &pane.error {
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Error: {err}")));
+            }
         }
     }
 
@@ -172,6 +226,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  Enter   Take control"),
         Line::from("  r   Reload config"),
         Line::from("  e   Edit config"),
+        Line::from("  c   Toggle compact mode"),
         Line::from("  z   Zoom focused tile"),
         Line::from("  ?   Toggle help"),
     ];

@@ -32,6 +32,7 @@ pub struct UiConfig {
     pub lines: usize,
     pub layout: String,
     pub theme: String,
+    pub compact: bool,
 }
 
 impl Default for UiConfig {
@@ -41,6 +42,7 @@ impl Default for UiConfig {
             lines: 40,
             layout: "auto".to_string(),
             theme: "default".to_string(),
+            compact: false,
         }
     }
 }

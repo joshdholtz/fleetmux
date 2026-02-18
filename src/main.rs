@@ -133,6 +133,9 @@ async fn handle_event(
                 )
                 .await?;
             }
+            KeyCode::Char('c') => {
+                state.config.ui.compact = !state.config.ui.compact;
+            }
             KeyCode::Enter => {
                 take_control(state, resolver, terminal).await?;
             }

@@ -3,6 +3,7 @@ refresh_ms = 750
 lines = 40
 layout = "auto"
 theme = "default"
+compact = false
 
 [colors]
 default_host_palette = [
