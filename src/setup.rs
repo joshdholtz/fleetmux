@@ -373,7 +373,7 @@ impl SetupState {
             .constraints([
                 Constraint::Percentage(50),
                 Constraint::Percentage(35),
-                Constraint::Length(6),
+                Constraint::Length(8),
             ])
             .split(area);
 
