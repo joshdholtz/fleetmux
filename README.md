@@ -36,6 +36,7 @@ FleetMux gives you the “brrrr dashboard” view without holding interactive SS
 - Startup wizard + structured selection (host → session → window → pane)
 - One‑key “take control” that drops you into the real tmux pane
 - ANSI rendering so output looks like the actual pane
+- Activity indicator + “last change” time so you can spot live panes fast
 - Local tmux support alongside remote hosts
 
 ## Quick start
