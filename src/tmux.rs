@@ -19,7 +19,7 @@ pub async fn capture_pane(
     ssh_cfg: &SshConfig,
 ) -> Result<PaneCapture> {
     let cmd = format!(
-        "tmux display-message -p -t {pane_id} '#{{pane_current_command}}\\t#{{pane_title}}' \
+        "tmux display-message -p -t {pane_id} '#{{pane_current_command}}\t#{{pane_title}}' \
          && tmux capture-pane -p -J -t {pane_id} -S -{lines}"
     );
     let output = ssh::run_ssh_command(target, ssh_cfg, &cmd)
@@ -29,7 +29,7 @@ pub async fn capture_pane(
 }
 
 pub fn list_panes_blocking(target: &str, ssh_cfg: &SshConfig) -> Result<Vec<PaneInfo>> {
-    let cmd = "tmux list-panes -a -F \"#{session_name}\\t#{window_index}\\t#{pane_id}\\t#{pane_current_command}\\t#{pane_title}\"";
+    let cmd = "tmux list-panes -a -F \"#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}\"";
     let output = ssh::run_ssh_command_blocking(target, ssh_cfg, cmd)
         .with_context(|| format!("list-panes failed for {target}"))?;
     Ok(parse_pane_list(&output))
