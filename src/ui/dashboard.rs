@@ -79,8 +79,15 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         .title(title);
 
     let content = build_content(state, index, state.config.ui.compact);
-    let paragraph = Paragraph::new(content)
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let scroll = content
+        .lines
+        .saturating_sub(inner_height)
+        .try_into()
+        .unwrap_or(0u16);
+    let paragraph = Paragraph::new(content.text)
         .block(block)
+        .scroll((scroll, 0))
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
@@ -161,11 +168,21 @@ fn title_color(border_color: Color, colors: &crate::model::HostColors) -> Color 
     }
 }
 
-fn build_content(state: &AppState, index: usize, compact: bool) -> Text<'static> {
+struct Content {
+    text: Text<'static>,
+    lines: usize,
+}
+
+fn build_content(state: &AppState, index: usize, compact: bool) -> Content {
     let pane = &state.panes[index];
     if state.config.ui.ansi {
         let raw = build_raw_content(state, pane, index, compact);
-        return raw.into_text().unwrap_or_else(|_| Text::from(raw));
+        let line_count = raw.lines().count().max(1);
+        let text = raw.into_text().unwrap_or_else(|_| Text::from(raw));
+        return Content {
+            text,
+            lines: line_count,
+        };
     }
 
     let mut lines = Vec::new();
@@ -223,7 +240,11 @@ fn build_content(state: &AppState, index: usize, compact: bool) -> Text<'static>
         }
     }
 
-    Text::from(lines)
+    let line_count = lines.len().max(1);
+    Content {
+        text: Text::from(lines),
+        lines: line_count,
+    }
 }
 
 fn build_raw_content(

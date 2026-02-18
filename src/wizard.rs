@@ -2,7 +2,7 @@ use crate::config::{Config, HostConfig, TrackedPane};
 use crate::ssh::HostResolver;
 use crate::tmux::{self, WindowInfo};
 use anyhow::{anyhow, Context, Result};
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
+use dialoguer::{console::Term, theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
@@ -207,6 +207,14 @@ fn select_panes_tree(
     let selected_hosts = if hosts.len() == 1 {
         hosts.clone()
     } else {
+        clear_and_header(
+            "Select hosts",
+            Some(&format!(
+                "Discovered {} hosts and {} panes.",
+                hosts.len(),
+                panes.len()
+            )),
+        );
         let defaults: Vec<bool> = hosts
             .iter()
             .map(|host| previous.iter().any(|key| &key.host == host))
@@ -234,6 +242,13 @@ fn select_panes_tree(
             None => continue,
         };
         let sessions: Vec<String> = sessions_map.keys().cloned().collect();
+        clear_and_header(
+            "Select sessions",
+            Some(&format!(
+                "Host: {host} ({} sessions)",
+                sessions.len()
+            )),
+        );
         let session_defaults: Vec<bool> = sessions
             .iter()
             .map(|session| {
@@ -260,6 +275,10 @@ fn select_panes_tree(
                 Some(map) => map,
                 None => continue,
             };
+            clear_and_header(
+                "Select windows",
+                Some(&format!("Host: {host}  Session: {session}")),
+            );
             let mut windows: Vec<(u32, String, usize)> = Vec::new();
             for (window, panes) in windows_map {
                 let name = panes
@@ -306,6 +325,12 @@ fn select_panes_tree(
                     Some(val) => val,
                     None => continue,
                 };
+                clear_and_header(
+                    "Select panes",
+                    Some(&format!(
+                        "Host: {host}  Session: {session}  Window: {window_id}"
+                    )),
+                );
                 let pane_items: Vec<String> = panes_in_window
                     .iter()
                     .map(|pane| {
@@ -314,7 +339,7 @@ fn select_panes_tree(
                         } else {
                             format!(" - {}", pane.title)
                         };
-                        format!("{} {}{}", pane.pane_id, pane.command, title)
+                        format!("{}  {}{}", pane.pane_id, pane.command, title)
                     })
                     .collect();
                 let pane_defaults: Vec<bool> = panes_in_window
@@ -351,6 +376,17 @@ fn select_panes_tree(
     }
 
     Ok(selected)
+}
+
+fn clear_and_header(title: &str, context: Option<&str>) {
+    let term = Term::stdout();
+    let _ = term.clear_screen();
+    println!("=== {title} ===");
+    if let Some(context) = context {
+        println!("{context}");
+    }
+    println!("Use <space> to select, <enter> to confirm.");
+    println!();
 }
 
 fn build_tracked_from_panes(
