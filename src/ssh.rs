@@ -49,32 +49,6 @@ impl HostResolver {
         Err(anyhow!("No reachable targets for host {}", host.name))
     }
 
-    pub fn resolve_target_blocking(
-        &mut self,
-        host: &HostConfig,
-        ssh: &SshConfig,
-    ) -> Result<String> {
-        if let Some(entry) = self.cache.get(&host.name) {
-            if entry.checked_at.elapsed() < CACHE_TTL {
-                return Ok(entry.target.clone());
-            }
-        }
-
-        for target in &host.targets {
-            if test_target_blocking(target, ssh).is_ok() {
-                self.cache.insert(
-                    host.name.clone(),
-                    CacheEntry {
-                        target: target.clone(),
-                        checked_at: Instant::now(),
-                    },
-                );
-                return Ok(target.clone());
-            }
-        }
-
-        Err(anyhow!("No reachable targets for host {}", host.name))
-    }
 }
 
 pub async fn run_ssh_command(target: &str, ssh: &SshConfig, remote_cmd: &str) -> Result<String> {
@@ -104,35 +78,6 @@ pub async fn run_ssh_command(target: &str, ssh: &SshConfig, remote_cmd: &str) ->
     }
 }
 
-pub fn run_ssh_command_blocking(
-    target: &str,
-    ssh: &SshConfig,
-    remote_cmd: &str,
-) -> Result<String> {
-    if is_local_target(target) {
-        return run_local_command_blocking(ssh, remote_cmd);
-    }
-
-    let mut cmd = std::process::Command::new("ssh");
-    for arg in build_ssh_args(ssh) {
-        cmd.arg(arg);
-    }
-    let wrapped = wrap_remote_cmd(ssh, remote_cmd);
-    cmd.arg(target).arg(wrapped);
-    cmd.stdin(Stdio::null());
-    let output = cmd
-        .output()
-        .with_context(|| format!("ssh command failed for {target}"))?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
-    } else {
-        Err(anyhow!(
-            "ssh command failed for {target}: {}",
-            String::from_utf8_lossy(&output.stderr).trim_end()
-        ))
-    }
-}
 
 pub async fn test_target(target: &str, ssh: &SshConfig) -> Result<()> {
     let cmd = "tmux -V";
@@ -148,10 +93,6 @@ pub async fn test_target(target: &str, ssh: &SshConfig) -> Result<()> {
     }
 }
 
-pub fn test_target_blocking(target: &str, ssh: &SshConfig) -> Result<()> {
-    let cmd = "tmux -V";
-    run_ssh_command_blocking(target, ssh, cmd).map(|_| ())
-}
 
 pub fn build_ssh_args(ssh: &SshConfig) -> Vec<String> {
     let mut args = Vec::new();
@@ -198,25 +139,6 @@ async fn run_local_command(ssh: &SshConfig, remote_cmd: &str) -> Result<String> 
         .stdin(Stdio::null())
         .output()
         .await
-        .context("local command failed")?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
-    } else {
-        Err(anyhow!(
-            "local command failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim_end()
-        ))
-    }
-}
-
-fn run_local_command_blocking(ssh: &SshConfig, remote_cmd: &str) -> Result<String> {
-    let wrapped = wrap_remote_cmd(ssh, remote_cmd);
-    let output = std::process::Command::new("sh")
-        .arg("-lc")
-        .arg(wrapped)
-        .stdin(Stdio::null())
-        .output()
         .context("local command failed")?;
 
     if output.status.success() {

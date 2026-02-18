@@ -45,15 +45,18 @@ cargo build --release
 ./target/release/fleetmux
 ```
 
-First run launches a setup wizard and saves:
+First run opens the in‑app setup UI and saves:
 
 ```
 ~/.config/fleetmux/config.toml
 ```
 
-## Startup flow
+## Setup flow
 
-Every run, FleetMux prompts you to select panes in a tree:
+FleetMux uses a full‑screen in‑app setup UI for both host management and pane selection.
+On first run it opens automatically; later you can press `s` from the dashboard to reopen it.
+
+Selection is a tree:
 
 ```
 Host → Session → Window → Pane
@@ -111,6 +114,7 @@ persist across restarts.
 - `r`: reload config
 - `e`: edit config
 - `n`: set label for focused pane
+- `s`: open setup
 - `c`: toggle compact mode
 - `z`: zoom focused tile
 - `?`: toggle help

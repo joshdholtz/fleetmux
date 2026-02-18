@@ -21,7 +21,7 @@ fleetmux doctor
 
 - `src/main.rs`: app loop, event handling, take control, config reload
 - `src/config.rs`: config schema + defaults
-- `src/wizard.rs`: host setup + startup pane selection
+- `src/setup.rs`: full-screen setup UI (hosts + pane selection)
 - `src/poller.rs`: async polling tasks
 - `src/tmux.rs`: tmux list/capture helpers
 - `src/ssh.rs`: SSH + local command execution, target resolution

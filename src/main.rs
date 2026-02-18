@@ -2,10 +2,10 @@ mod config;
 mod doctor;
 mod model;
 mod poller;
+mod setup;
 mod ssh;
 mod tmux;
 mod ui;
-mod wizard;
 
 use anyhow::{anyhow, Context, Result};
 use config::Config;
@@ -22,6 +22,17 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
+enum Mode {
+    Dashboard,
+    Setup(setup::SetupState),
+}
+
+enum DashboardAction {
+    None,
+    Quit,
+    OpenSetup,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let config_path = config::config_path()?;
@@ -33,49 +44,119 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut config = ensure_hosts(&config_path)?;
+    let mut config = if config_path.exists() {
+        config::load(&config_path)?
+    } else {
+        Config::default()
+    };
     apply_local_host(&mut config);
-    config.tracked = wizard::select_panes(&config)?;
-    config::save(&config_path, &config)?;
 
     let host_colors = build_host_colors(&config);
-    let mut state = AppState::new(config.clone(), host_colors);
+    let mut state = AppState::new(config.clone(), host_colors.clone());
 
     let resolver = Arc::new(Mutex::new(ssh::HostResolver::new()));
     let (update_tx, mut update_rx) = mpsc::channel(100);
-    let mut pollers = poller::start_pollers(&config, Arc::clone(&resolver), update_tx.clone());
+    let mut pollers: Option<PollerHandle> = None;
+
+    let mut mode = if config.hosts.is_empty() || config.tracked.is_empty() {
+        Mode::Setup(setup::SetupState::new(config.clone()))
+    } else {
+        pollers = Some(poller::start_pollers(
+            &config,
+            Arc::clone(&resolver),
+            update_tx.clone(),
+        ));
+        Mode::Dashboard
+    };
 
     let mut terminal = ui::enter_terminal()?;
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(200));
 
     loop {
-        terminal.draw(|f| ui::dashboard::draw(f, &state))?;
+        match &mut mode {
+            Mode::Dashboard => {
+                terminal.draw(|f| ui::dashboard::draw(f, &state))?;
+            }
+            Mode::Setup(setup_state) => {
+                setup_state.handle_messages();
+                terminal.draw(|f| setup_state.draw(f))?;
+            }
+        }
 
         tokio::select! {
             maybe_update = update_rx.recv() => {
                 if let Some(update) = maybe_update {
-                    state.apply_update(update);
+                    if matches!(mode, Mode::Dashboard) {
+                        state.apply_update(update);
+                    }
                 }
             }
             maybe_event = events.next() => {
                 if let Some(Ok(event)) = maybe_event {
-                    if handle_event(
-                        event,
-                        &mut state,
-                        &config_path,
-                        &mut terminal,
-                        &resolver,
-                        &mut pollers,
-                        &update_tx,
-                        &mut config,
-                    ).await? {
-                        break;
+                    match &mut mode {
+                        Mode::Dashboard => {
+                            match handle_dashboard_event(
+                                event,
+                                &mut state,
+                                &config_path,
+                                &mut terminal,
+                                &resolver,
+                                pollers.as_mut(),
+                                &update_tx,
+                                &mut config,
+                            ).await? {
+                                DashboardAction::Quit => break,
+                                DashboardAction::OpenSetup => {
+                                    if let Some(mut pollers) = pollers.take() {
+                                        pollers.stop().await;
+                                    }
+                                    mode = Mode::Setup(setup::SetupState::new(config.clone()));
+                                }
+                                DashboardAction::None => {}
+                            }
+                        }
+                        Mode::Setup(setup_state) => {
+                            match setup_state.handle_event(event)? {
+                                setup::SetupAction::Save { config: new_config, tracked } => {
+                                    let mut new_config = new_config.clone();
+                                    new_config.tracked = tracked;
+                                    apply_local_host(&mut new_config);
+                                    config::save(&config_path, &new_config)?;
+                                    config = new_config.clone();
+                                    let host_colors = build_host_colors(&new_config);
+                                    state = AppState::new(new_config.clone(), host_colors);
+                                    pollers = Some(poller::start_pollers(
+                                        &new_config,
+                                        Arc::clone(&resolver),
+                                        update_tx.clone(),
+                                    ));
+                                    mode = Mode::Dashboard;
+                                }
+                                setup::SetupAction::Cancel => {
+                                    if config.tracked.is_empty() {
+                                        setup_state.set_status("Select panes and press 's' to save.");
+                                    } else {
+                                        let host_colors = build_host_colors(&config);
+                                        state = AppState::new(config.clone(), host_colors);
+                                        pollers = Some(poller::start_pollers(
+                                            &config,
+                                            Arc::clone(&resolver),
+                                            update_tx.clone(),
+                                        ));
+                                        mode = Mode::Dashboard;
+                                    }
+                                }
+                                setup::SetupAction::None => {}
+                            }
+                        }
                     }
                 }
             }
             _ = tick.tick() => {
-                state.refresh_stale();
+                if matches!(mode, Mode::Dashboard) {
+                    state.refresh_stale();
+                }
             }
         }
     }
@@ -84,37 +165,28 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn ensure_hosts(path: &Path) -> Result<Config> {
-    if path.exists() {
-        let config = config::load(path)?;
-        if config.hosts.is_empty() {
-            return wizard::run_host_setup(path);
-        }
-        return Ok(config);
-    }
-
-    wizard::run_host_setup(path)
-}
-
-async fn handle_event(
+async fn handle_dashboard_event(
     event: Event,
     state: &mut AppState,
     config_path: &Path,
     terminal: &mut ui::AppTerminal,
     resolver: &Arc<Mutex<ssh::HostResolver>>,
-    pollers: &mut PollerHandle,
+    pollers: Option<&mut PollerHandle>,
     update_tx: &mpsc::Sender<model::PaneUpdate>,
     config: &mut Config,
-) -> Result<bool> {
+) -> Result<DashboardAction> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-            KeyCode::Char('q') => return Ok(true),
+            KeyCode::Char('q') => return Ok(DashboardAction::Quit),
+            KeyCode::Char('s') => return Ok(DashboardAction::OpenSetup),
             KeyCode::Char('?') => state.show_help = !state.show_help,
             KeyCode::Char('z') => state.zoomed = !state.zoomed,
             KeyCode::Char('r') => {
+                let Some(pollers) = pollers else {
+                    return Ok(DashboardAction::None);
+                };
                 reload_config(
                     config_path,
-                    terminal,
                     resolver,
                     pollers,
                     update_tx,
@@ -124,10 +196,12 @@ async fn handle_event(
                 .await?;
             }
             KeyCode::Char('e') => {
+                let Some(pollers) = pollers else {
+                    return Ok(DashboardAction::None);
+                };
                 edit_config(config_path, terminal)?;
                 reload_config(
                     config_path,
-                    terminal,
                     resolver,
                     pollers,
                     update_tx,
@@ -138,6 +212,7 @@ async fn handle_event(
             }
             KeyCode::Char('n') => {
                 set_label_for_focused(state, terminal, config_path)?;
+                *config = state.config.clone();
             }
             KeyCode::Char('c') => {
                 state.config.ui.compact = !state.config.ui.compact;
@@ -154,7 +229,7 @@ async fn handle_event(
         },
         _ => {}
     }
-    Ok(false)
+    Ok(DashboardAction::None)
 }
 
 fn move_focus(state: &mut AppState, direction: FocusMove) {
@@ -194,7 +269,6 @@ fn grid_dimensions(count: usize) -> (usize, usize) {
 
 async fn reload_config(
     config_path: &Path,
-    terminal: &mut ui::AppTerminal,
     resolver: &Arc<Mutex<ssh::HostResolver>>,
     pollers: &mut PollerHandle,
     update_tx: &mpsc::Sender<model::PaneUpdate>,
@@ -209,10 +283,8 @@ async fn reload_config(
 
     let mut new_config = new_config.clone();
     apply_local_host(&mut new_config);
-    let tracked = select_panes_with_terminal(&new_config, terminal)?;
 
     pollers.stop().await;
-    new_config.tracked = tracked;
     config::save(config_path, &new_config)?;
     *config = new_config.clone();
     let host_colors = build_host_colors(&new_config);
@@ -235,16 +307,6 @@ fn edit_config(path: &Path, terminal: &mut ui::AppTerminal) -> Result<()> {
 
     *terminal = ui::enter_terminal()?;
     Ok(())
-}
-
-fn select_panes_with_terminal(
-    config: &Config,
-    terminal: &mut ui::AppTerminal,
-) -> Result<Vec<config::TrackedPane>> {
-    ui::exit_terminal(terminal)?;
-    let result = wizard::select_panes(config);
-    *terminal = ui::enter_terminal()?;
-    result
 }
 
 fn set_label_for_focused(

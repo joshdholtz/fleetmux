@@ -396,6 +396,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  r   Reload config"),
         Line::from("  e   Edit config"),
         Line::from("  n   Set pane label"),
+        Line::from("  s   Setup"),
         Line::from("  c   Toggle compact mode"),
         Line::from("  z   Zoom focused tile"),
         Line::from("  ?   Toggle help"),
