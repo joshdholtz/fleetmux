@@ -121,6 +121,12 @@ fn build_title(
     spans.push(Span::styled(host.to_string(), host_style));
     spans.push(Span::raw(" "));
     spans.push(Span::styled(session_window, Style::default().fg(title_color)));
+    let indicator = activity_indicator(pane);
+    if !indicator.is_empty() {
+        let indicator_style = indicator_style(pane, &indicator);
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(indicator, indicator_style));
+    }
 
     let label = build_label(pane);
     if let Some(label) = label {
@@ -245,14 +251,14 @@ fn build_content(state: &AppState, index: usize, compact: bool) -> Content {
                 Span::raw("Status: "),
                 Span::raw(status_label),
                 Span::raw(" · "),
-                Span::styled(indicator.clone(), indicator_style(pane)),
+                Span::styled(indicator.clone(), indicator_style(pane, &indicator)),
             ]));
         } else {
             lines.push(Line::from(vec![
                 Span::raw("Status: "),
                 Span::raw(status_label),
                 Span::raw(" "),
-                Span::styled(indicator.clone(), indicator_style(pane)),
+                Span::styled(indicator.clone(), indicator_style(pane, &indicator)),
             ]));
         }
 
@@ -395,17 +401,29 @@ fn activity_indicator(pane: &crate::model::PaneState) -> String {
     if pane.status != PaneStatus::Ok {
         return String::new();
     }
-    let Some(last) = pane.last_change else {
-        return "idle".to_string();
-    };
-    let age = last.elapsed();
-    if age <= ACTIVE_WINDOW {
-        spinner_frame().to_string()
-    } else if age >= IDLE_AFTER {
-        "idle".to_string()
-    } else {
-        String::new()
+    let now = std::time::Instant::now();
+    let update_age = pane.last_update.map(|t| now.duration_since(t));
+    let change_age = pane.last_change.map(|t| now.duration_since(t));
+
+    if let Some(age) = change_age {
+        if age <= ACTIVE_WINDOW {
+            return spinner_frame().to_string();
+        }
+        if age >= IDLE_AFTER {
+            return "idle".to_string();
+        }
     }
+
+    if let Some(age) = update_age {
+        if age <= ACTIVE_WINDOW {
+            return spinner_frame().to_string();
+        }
+        if age >= IDLE_AFTER {
+            return "idle".to_string();
+        }
+    }
+
+    String::new()
 }
 
 fn spinner_frame() -> &'static str {
@@ -427,9 +445,11 @@ fn status_line(status: &str, indicator: &str) -> String {
     }
 }
 
-fn indicator_style(pane: &crate::model::PaneState) -> Style {
+fn indicator_style(pane: &crate::model::PaneState, indicator: &str) -> Style {
     if pane.status != PaneStatus::Ok {
         Style::default()
+    } else if indicator == "idle" {
+        Style::default().fg(Color::DarkGray)
     } else {
         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     }
