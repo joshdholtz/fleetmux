@@ -16,6 +16,25 @@ const ACCENT: Color = Color::Cyan;
 const ACCENT_DIM: Color = Color::DarkGray;
 const ERROR: Color = Color::Red;
 const WARN: Color = Color::Yellow;
+const COLOR_OPTIONS: [&str; 17] = [
+    "Auto",
+    "Black",
+    "Red",
+    "Green",
+    "Yellow",
+    "Blue",
+    "Magenta",
+    "Cyan",
+    "Gray",
+    "DarkGray",
+    "LightRed",
+    "LightGreen",
+    "LightYellow",
+    "LightBlue",
+    "LightMagenta",
+    "LightCyan",
+    "White",
+];
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 struct PaneKey {
@@ -74,7 +93,7 @@ struct HostForm {
     mode: FormMode,
     name: String,
     targets: String,
-    color: String,
+    color_index: usize,
     field: FormField,
     error: Option<String>,
 }
@@ -524,13 +543,13 @@ impl SetupState {
             &form.targets,
             form.field == FormField::Targets,
         ));
-        lines.push(input_line(
-            "Color (optional)",
-            &form.color,
+        lines.push(input_select_line(
+            "Color",
+            color_label(form.color_index),
             form.field == FormField::Color,
         ));
         lines.push(Line::from(""));
-        lines.push(Line::from("Enter: save  Esc: cancel  Tab: next"));
+        lines.push(Line::from("Enter: save  Esc: cancel  Tab: next  ←/→: color"));
         if let Some(error) = &form.error {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -586,6 +605,20 @@ impl SetupState {
     fn handle_host_form_event(&mut self, form: &mut HostForm, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::Esc => return Ok(false),
+            KeyCode::Left | KeyCode::Char('h') => {
+                if form.field == FormField::Color {
+                    if form.color_index == 0 {
+                        form.color_index = COLOR_OPTIONS.len() - 1;
+                    } else {
+                        form.color_index -= 1;
+                    }
+                }
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                if form.field == FormField::Color {
+                    form.color_index = (form.color_index + 1) % COLOR_OPTIONS.len();
+                }
+            }
             KeyCode::Tab | KeyCode::Down => {
                 form.field = match form.field {
                     FormField::Name => FormField::Targets,
@@ -615,10 +648,13 @@ impl SetupState {
                 }
             }
             KeyCode::Backspace => {
+                if form.field == FormField::Color {
+                    return Ok(true);
+                }
                 let target = match form.field {
                     FormField::Name => &mut form.name,
                     FormField::Targets => &mut form.targets,
-                    FormField::Color => &mut form.color,
+                    FormField::Color => &mut form.name,
                 };
                 target.pop();
             }
@@ -626,10 +662,13 @@ impl SetupState {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     return Ok(true);
                 }
+                if form.field == FormField::Color {
+                    return Ok(true);
+                }
                 let target = match form.field {
                     FormField::Name => &mut form.name,
                     FormField::Targets => &mut form.targets,
-                    FormField::Color => &mut form.color,
+                    FormField::Color => &mut form.name,
                 };
                 target.push(ch);
             }
@@ -671,10 +710,10 @@ impl SetupState {
             form.error = Some("At least one target is required".to_string());
             return None;
         }
-        let color = if form.color.trim().is_empty() {
+        let color = if form.color_index == 0 {
             None
         } else {
-            Some(form.color.trim().to_string())
+            Some(color_label(form.color_index).to_string())
         };
 
         Some(HostConfig {
@@ -691,7 +730,7 @@ impl SetupState {
             mode: FormMode::Add,
             name: String::new(),
             targets: String::new(),
-            color: String::new(),
+            color_index: 0,
             field: FormField::Name,
             error: None,
         }));
@@ -703,12 +742,16 @@ impl SetupState {
             self.status = Some("Local host is managed via [local] config.".to_string());
             return;
         }
-        let color = host.color.clone().unwrap_or_default();
+        let color_index = host
+            .color
+            .as_deref()
+            .map(color_index_from_name)
+            .unwrap_or(0);
         self.modal = Some(Modal::HostForm(HostForm {
             mode: FormMode::Edit(self.host_index),
             name: host.name.clone(),
             targets: host.targets.join(", "),
-            color,
+            color_index,
             field: FormField::Name,
             error: None,
         }));
@@ -1215,6 +1258,35 @@ fn input_line(label: &str, value: &str, active: bool) -> Line<'static> {
             },
         ),
     ])
+}
+
+fn input_select_line(label: &str, value: &str, active: bool) -> Line<'static> {
+    let prefix = if active { ">" } else { " " };
+    let label_style = if active {
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT_DIM)
+    };
+    let value_style = if active {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    Line::from(vec![
+        Span::styled(format!("{prefix} {label}: "), label_style),
+        Span::styled(format!("[{value}]"), value_style),
+    ])
+}
+
+fn color_label(index: usize) -> &'static str {
+    COLOR_OPTIONS.get(index).copied().unwrap_or("Auto")
+}
+
+fn color_index_from_name(name: &str) -> usize {
+    COLOR_OPTIONS
+        .iter()
+        .position(|option| option.eq_ignore_ascii_case(name))
+        .unwrap_or(0)
 }
 
 fn panel_block(title: &str, focused: bool) -> Block<'static> {
