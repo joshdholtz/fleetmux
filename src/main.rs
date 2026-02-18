@@ -156,6 +156,15 @@ async fn main() -> Result<()> {
             _ = tick.tick() => {
                 if matches!(mode, Mode::Dashboard) {
                     state.refresh_stale();
+                    let stopped = state.update_activity_states();
+                    if state.config.ui.bell_on_stop && stopped > 0 {
+                        ui::bell()?;
+                    }
+                    if state.config.ui.macos_notification_on_stop && stopped > 0 {
+                        let suffix = if stopped == 1 { "" } else { "s" };
+                        let message = format!("{stopped} pane{suffix} stopped updating");
+                        let _ = ui::notify_macos("FleetMux", &message);
+                    }
                 }
             }
         }

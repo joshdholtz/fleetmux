@@ -5,10 +5,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-const ACTIVE_WINDOW: Duration = Duration::from_secs(5);
-const IDLE_AFTER: Duration = Duration::from_secs(30);
+use std::time::{SystemTime, UNIX_EPOCH};
 const SPINNER_FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 
 pub fn draw(f: &mut Frame, state: &AppState) {
@@ -398,19 +395,10 @@ fn format_duration(duration: std::time::Duration) -> String {
 }
 
 fn activity_indicator(pane: &crate::model::PaneState) -> String {
-    if pane.status != PaneStatus::Ok {
-        return String::new();
-    }
-    let Some(last) = pane.last_change else {
-        return String::new();
-    };
-    let age = last.elapsed();
-    if age <= ACTIVE_WINDOW {
-        spinner_frame().to_string()
-    } else if age >= IDLE_AFTER {
-        "idle".to_string()
-    } else {
-        String::new()
+    match pane.activity_state() {
+        crate::model::ActivityState::Active => spinner_frame().to_string(),
+        crate::model::ActivityState::Idle => "idle".to_string(),
+        crate::model::ActivityState::Quiet => String::new(),
     }
 }
 

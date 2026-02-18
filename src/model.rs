@@ -3,6 +3,9 @@ use ratatui::style::Color;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+pub const ACTIVE_WINDOW: Duration = Duration::from_secs(5);
+pub const IDLE_AFTER: Duration = Duration::from_secs(30);
+
 #[derive(Clone, Debug)]
 pub struct HostColors {
     pub base: Color,
@@ -28,6 +31,27 @@ pub enum PaneStatus {
     Ok,
     Down,
     Stale,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActivityState {
+    Active,
+    Idle,
+    Quiet,
+}
+
+pub fn activity_state(last_change: Option<Instant>) -> ActivityState {
+    let Some(last) = last_change else {
+        return ActivityState::Quiet;
+    };
+    let age = last.elapsed();
+    if age <= ACTIVE_WINDOW {
+        ActivityState::Active
+    } else if age >= IDLE_AFTER {
+        ActivityState::Idle
+    } else {
+        ActivityState::Quiet
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -62,6 +86,13 @@ impl PaneState {
             last_hash: None,
         }
     }
+
+    pub fn activity_state(&self) -> ActivityState {
+        if self.status != PaneStatus::Ok {
+            return ActivityState::Quiet;
+        }
+        activity_state(self.last_change)
+    }
 }
 
 #[derive(Debug)]
@@ -72,16 +103,18 @@ pub struct AppState {
     pub show_help: bool,
     pub zoomed: bool,
     pub host_colors: HashMap<String, HostColors>,
+    pub activity_states: Vec<ActivityState>,
 }
 
 impl AppState {
     pub fn new(config: Config, host_colors: HashMap<String, HostColors>) -> Self {
-        let panes = config
+        let panes: Vec<PaneState> = config
             .tracked
             .iter()
             .cloned()
             .map(PaneState::new)
             .collect();
+        let activity_states = panes.iter().map(PaneState::activity_state).collect();
         Self {
             config,
             panes,
@@ -89,6 +122,7 @@ impl AppState {
             show_help: false,
             zoomed: false,
             host_colors,
+            activity_states,
         }
     }
 
@@ -127,6 +161,22 @@ impl AppState {
                 }
             }
         }
+    }
+
+    pub fn update_activity_states(&mut self) -> usize {
+        if self.activity_states.len() != self.panes.len() {
+            self.activity_states = vec![ActivityState::Quiet; self.panes.len()];
+        }
+        let mut stopped = 0;
+        for (idx, pane) in self.panes.iter().enumerate() {
+            let next_state = pane.activity_state();
+            let prev_state = self.activity_states[idx];
+            if prev_state == ActivityState::Active && next_state != ActivityState::Active {
+                stopped += 1;
+            }
+            self.activity_states[idx] = next_state;
+        }
+        stopped
     }
 
     pub fn is_active(&self, index: usize) -> bool {

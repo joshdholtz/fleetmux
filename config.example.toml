@@ -6,6 +6,8 @@ theme = "default"
 compact = false
 ansi = true
 join_lines = false
+bell_on_stop = true
+macos_notification_on_stop = false
 
 [colors]
 default_host_palette = [

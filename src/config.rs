@@ -37,6 +37,8 @@ pub struct UiConfig {
     pub compact: bool,
     pub ansi: bool,
     pub join_lines: bool,
+    pub bell_on_stop: bool,
+    pub macos_notification_on_stop: bool,
 }
 
 impl Default for UiConfig {
@@ -49,6 +51,8 @@ impl Default for UiConfig {
             compact: false,
             ansi: true,
             join_lines: false,
+            bell_on_stop: true,
+            macos_notification_on_stop: false,
         }
     }
 }
