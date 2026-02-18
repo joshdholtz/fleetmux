@@ -223,11 +223,23 @@ async fn handle_dashboard_event(
                 set_label_for_focused(state, terminal, config_path)?;
                 *config = state.config.clone();
             }
+            KeyCode::Char('b') => {
+                toggle_bookmark_for_focused(state, config_path)?;
+                *config = state.config.clone();
+            }
             KeyCode::Char('c') => {
                 state.config.ui.compact = !state.config.ui.compact;
             }
             KeyCode::Enter => {
                 take_control(state, resolver, terminal).await?;
+            }
+            KeyCode::Char(ch) if ch.is_ascii_digit() => {
+                if let Some(index) = bookmark_index_from_key(ch) {
+                    if let Some(bookmark) = state.config.bookmarks.get(index) {
+                        take_control_for_tracked(&state.config, resolver, terminal, bookmark)
+                            .await?;
+                    }
+                }
             }
             KeyCode::Tab => move_focus(state, FocusMove::Next),
             KeyCode::Left | KeyCode::Char('h') => move_focus(state, FocusMove::Left),
@@ -356,6 +368,15 @@ fn set_label_for_focused(
             tracked.label = label.clone();
         }
     }
+    for bookmark in &mut state.config.bookmarks {
+        if bookmark.host == host
+            && bookmark.session == session
+            && bookmark.window == window
+            && bookmark.pane_id == pane_id
+        {
+            bookmark.label = label.clone();
+        }
+    }
     for pane_state in &mut state.panes {
         if pane_state.tracked.host == host
             && pane_state.tracked.session == session
@@ -370,6 +391,39 @@ fn set_label_for_focused(
     Ok(())
 }
 
+fn toggle_bookmark_for_focused(state: &mut AppState, config_path: &Path) -> Result<()> {
+    let pane = state
+        .panes
+        .get(state.focused)
+        .ok_or_else(|| anyhow!("No focused pane"))?;
+    if let Some(index) = state.config.bookmarks.iter().position(|bookmark| {
+        bookmark.host == pane.tracked.host
+            && bookmark.session == pane.tracked.session
+            && bookmark.window == pane.tracked.window
+            && bookmark.pane_id == pane.tracked.pane_id
+    }) {
+        state.config.bookmarks.remove(index);
+    } else {
+        state.config.bookmarks.push(config::TrackedPane {
+            host: pane.tracked.host.clone(),
+            session: pane.tracked.session.clone(),
+            window: pane.tracked.window,
+            pane_id: pane.tracked.pane_id.clone(),
+            label: pane.tracked.label.clone(),
+        });
+    }
+    config::save(config_path, &state.config)?;
+    Ok(())
+}
+
+fn bookmark_index_from_key(ch: char) -> Option<usize> {
+    match ch {
+        '1'..='9' => ch.to_digit(10).map(|n| (n - 1) as usize),
+        '0' => Some(9),
+        _ => None,
+    }
+}
+
 async fn take_control(
     state: &AppState,
     resolver: &Arc<Mutex<ssh::HostResolver>>,
@@ -379,30 +433,38 @@ async fn take_control(
         .panes
         .get(state.focused)
         .ok_or_else(|| anyhow!("No focused pane"))?;
-    let host_cfg = state
-        .config
+    take_control_for_tracked(&state.config, resolver, terminal, &pane.tracked).await
+}
+
+async fn take_control_for_tracked(
+    config: &Config,
+    resolver: &Arc<Mutex<ssh::HostResolver>>,
+    terminal: &mut ui::AppTerminal,
+    tracked: &config::TrackedPane,
+) -> Result<()> {
+    let host_cfg = config
         .hosts
         .iter()
-        .find(|host| host.name == pane.tracked.host)
-        .ok_or_else(|| anyhow!("Unknown host: {}", pane.tracked.host))?;
+        .find(|host| host.name == tracked.host)
+        .ok_or_else(|| anyhow!("Unknown host: {}", tracked.host))?;
 
     let target = {
         let mut resolver = resolver.lock().await;
-        resolver.resolve_target(host_cfg, &state.config.ssh).await
+        resolver.resolve_target(host_cfg, &config.ssh).await
     }?;
 
     let remote_cmd = format!(
         "tmux attach -t {session} \\; select-window -t {session}:{window} \\; select-pane -t {pane_id}",
-        session = pane.tracked.session,
-        window = pane.tracked.window,
-        pane_id = pane.tracked.pane_id
+        session = tracked.session,
+        window = tracked.window,
+        pane_id = tracked.pane_id
     );
-    let remote_cmd = ssh::wrap_remote_cmd(&state.config.ssh, &remote_cmd);
+    let remote_cmd = ssh::wrap_remote_cmd(&config.ssh, &remote_cmd);
 
     ui::exit_terminal(terminal)?;
 
     if ssh::is_local_target(&target) {
-        let local_cmd = ssh::wrap_remote_cmd(&state.config.ssh, &remote_cmd);
+        let local_cmd = ssh::wrap_remote_cmd(&config.ssh, &remote_cmd);
         let status = tokio::process::Command::new("sh")
             .arg("-lc")
             .arg(local_cmd)
@@ -418,7 +480,7 @@ async fn take_control(
     } else {
         let mut cmd = tokio::process::Command::new("ssh");
         cmd.arg("-t");
-        for arg in ssh::build_ssh_args(&state.config.ssh) {
+        for arg in ssh::build_ssh_args(&config.ssh) {
             cmd.arg(arg);
         }
         cmd.arg(&target);

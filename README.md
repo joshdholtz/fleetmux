@@ -38,6 +38,7 @@ FleetMux gives you the “brrrr dashboard” view without holding interactive SS
 - ANSI rendering so output looks like the actual pane
 - Activity indicator + “last change” time so you can spot live panes fast
 - Local tmux support alongside remote hosts
+- Pinned bookmark strip for quick jump‑in panes
 
 ## Quick start
 
@@ -66,6 +67,8 @@ Host → Session → Window → Pane
 Previously selected panes are preselected if they still exist. If `local.enabled = true`, the
 local tmux server shows up as an extra host named by `local.name`.
 
+While selecting panes, press `m` to toggle a bookmark (shown in the bottom strip of the dashboard).
+
 ## Diagnostics
 
 ```sh
@@ -91,6 +94,7 @@ See `config.example.toml` for a full example. Common fields:
 - `local.name`: display name for the local host
 - `hosts`: logical hosts + SSH targets
 - `tracked`: optional, updated on each selection
+- `bookmarks`: optional quick‑jump panes (not rendered in the main tiles)
 
 ### Host colors
 
@@ -117,6 +121,8 @@ persist across restarts.
 - `r`: reload config
 - `e`: edit config
 - `n`: set label for focused pane
+- `b`: toggle bookmark for focused pane
+- `1-9`/`0`: jump to bookmarks 1–10
 - `s`: open setup
 - `c`: toggle compact mode
 - `z`: zoom focused tile

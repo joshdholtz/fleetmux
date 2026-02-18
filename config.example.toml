@@ -44,3 +44,10 @@ session = "main"
 window = 0
 pane_id = "%3"
 label = "Build Logs"
+
+[[bookmarks]]
+host = "buildbox"
+session = "main"
+window = 1
+pane_id = "%4"
+label = "Deploys"

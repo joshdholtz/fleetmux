@@ -112,6 +112,7 @@ pub struct SetupState {
     tree_index: usize,
     pane_index: usize,
     selection: HashSet<PaneKey>,
+    bookmarks: HashSet<PaneKey>,
     host_data: HashMap<String, HostData>,
     modal: Option<Modal>,
     status: Option<String>,
@@ -135,6 +136,16 @@ impl SetupState {
                 pane_id: pane.pane_id.clone(),
             })
             .collect();
+        let bookmarks = config
+            .bookmarks
+            .iter()
+            .map(|pane| PaneKey {
+                host: pane.host.clone(),
+                session: pane.session.clone(),
+                window: pane.window,
+                pane_id: pane.pane_id.clone(),
+            })
+            .collect();
         let mut state = Self {
             config,
             focus: Focus::Hosts,
@@ -142,6 +153,7 @@ impl SetupState {
             tree_index: 0,
             pane_index: 0,
             selection,
+            bookmarks,
             host_data: HashMap::new(),
             modal: None,
             status: None,
@@ -241,6 +253,7 @@ impl SetupState {
             KeyCode::Down | KeyCode::Char('j') => self.move_down(),
             KeyCode::Enter => self.handle_enter(),
             KeyCode::Char(' ') => self.toggle_pane_selection(),
+            KeyCode::Char('m') => self.toggle_bookmark(),
             KeyCode::Char('a') => self.open_add_host(),
             KeyCode::Char('e') => self.open_edit_host(),
             KeyCode::Char('d') => self.confirm_delete_host(),
@@ -364,13 +377,20 @@ impl SetupState {
         let items: Vec<ListItem> = panes
             .iter()
             .map(|pane| {
-                let selected = self.selection.contains(&PaneKey {
+                let key = PaneKey {
                     host: host.to_string(),
                     session: pane.session.clone(),
                     window: pane.window,
                     pane_id: pane.pane_id.clone(),
-                });
-                let marker = if selected { "[x]" } else { "[ ]" };
+                };
+                let selected = self.selection.contains(&key);
+                let bookmarked = self.bookmarks.contains(&key);
+                let marker = match (selected, bookmarked) {
+                    (true, true) => "[TB]",
+                    (true, false) => "[T]",
+                    (false, true) => "[B]",
+                    (false, false) => "[ ]",
+                };
                 let label = if pane.title.is_empty() {
                     pane.command.clone()
                 } else {
@@ -414,6 +434,7 @@ impl SetupState {
         spans.extend(hint("Tab", "focus"));
         spans.extend(hint("Arrows", "navigate"));
         spans.extend(hint("Space", "toggle"));
+        spans.extend(hint("m", "bookmark"));
         spans.extend(hint("a", "add"));
         spans.extend(hint("e", "edit"));
         spans.extend(hint("d", "delete"));
@@ -790,6 +811,26 @@ impl SetupState {
         }
     }
 
+    fn toggle_bookmark(&mut self) {
+        if self.focus != Focus::Panes {
+            return;
+        }
+        let Some((host, window)) = self.current_window() else { return; };
+        let panes = self.panes_for_window(host, &window);
+        let Some(pane) = panes.get(self.pane_index) else { return; };
+        let key = PaneKey {
+            host: host.to_string(),
+            session: pane.session.clone(),
+            window: pane.window,
+            pane_id: pane.pane_id.clone(),
+        };
+        if self.bookmarks.contains(&key) {
+            self.bookmarks.remove(&key);
+        } else {
+            self.bookmarks.insert(key);
+        }
+    }
+
     fn save_selection(&mut self) -> Result<SetupAction> {
         if self.selection.is_empty() {
             self.status = Some("Select at least one pane.".to_string());
@@ -810,6 +851,18 @@ impl SetupState {
                 label: self.find_label_for(key),
             })
             .collect();
+        let bookmarks: Vec<TrackedPane> = self
+            .bookmarks
+            .iter()
+            .map(|key| TrackedPane {
+                host: key.host.clone(),
+                session: key.session.clone(),
+                window: key.window,
+                pane_id: key.pane_id.clone(),
+                label: self.find_label_for(key),
+            })
+            .collect();
+        self.config.bookmarks = bookmarks;
         Ok(SetupAction::Save {
             config: self.config.clone(),
             tracked,
@@ -818,6 +871,15 @@ impl SetupState {
 
     fn find_label_for(&self, key: &PaneKey) -> Option<String> {
         for pane in &self.config.tracked {
+            if pane.host == key.host
+                && pane.session == key.session
+                && pane.window == key.window
+                && pane.pane_id == key.pane_id
+            {
+                return pane.label.clone();
+            }
+        }
+        for pane in &self.config.bookmarks {
             if pane.host == key.host
                 && pane.session == key.session
                 && pane.window == key.window

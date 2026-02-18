@@ -12,6 +12,7 @@ pub struct Config {
     pub local: LocalConfig,
     pub hosts: Vec<HostConfig>,
     pub tracked: Vec<TrackedPane>,
+    pub bookmarks: Vec<TrackedPane>,
 }
 
 impl Default for Config {
@@ -23,6 +24,7 @@ impl Default for Config {
             local: LocalConfig::default(),
             hosts: Vec::new(),
             tracked: Vec::new(),
+            bookmarks: Vec::new(),
         }
     }
 }

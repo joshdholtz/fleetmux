@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 use std::time::{SystemTime, UNIX_EPOCH};
 const SPINNER_FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+const BOOKMARK_HEIGHT: u16 = 2;
 
 pub fn draw(f: &mut Frame, state: &AppState) {
     let area = f.area();
@@ -17,11 +18,21 @@ pub fn draw(f: &mut Frame, state: &AppState) {
         return;
     }
 
+    let mut main_area = area;
+    if !state.config.bookmarks.is_empty() {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(BOOKMARK_HEIGHT)])
+            .split(area);
+        main_area = chunks[0];
+        draw_bookmarks(f, chunks[1], state);
+    }
+
     if state.zoomed {
         let index = state.focused.min(state.panes.len().saturating_sub(1));
-        draw_tile(f, state, index, area, true);
+        draw_tile(f, state, index, main_area, true);
     } else {
-        let tiles = grid_layout(area, state.panes.len());
+        let tiles = grid_layout(main_area, state.panes.len());
         for (index, rect) in tiles.into_iter().enumerate() {
             draw_tile(f, state, index, rect, index == state.focused);
         }
@@ -472,6 +483,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  h/j/k/l or arrows   Move focus"),
         Line::from("  Tab   Next tile"),
         Line::from("  Enter   Take control"),
+        Line::from("  b   Toggle bookmark"),
+        Line::from("  1-9/0   Jump to bookmark"),
         Line::from("  r   Reload config"),
         Line::from("  e   Edit config"),
         Line::from("  n   Set pane label"),
@@ -489,6 +502,86 @@ fn draw_help(f: &mut Frame, area: Rect) {
 
     let popup_area = centered_rect(60, 60, area);
     f.render_widget(paragraph, popup_area);
+}
+
+fn draw_bookmarks(f: &mut Frame, area: Rect, state: &AppState) {
+    let title = Line::from(Span::styled(
+        "Bookmarks".to_string(),
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
+    ));
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(title);
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut first = true;
+    let max_items = 10usize;
+    for (idx, bookmark) in state.config.bookmarks.iter().take(max_items).enumerate() {
+        if !first {
+            spans.push(Span::styled(
+                "  •  ".to_string(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        first = false;
+
+        let key = match idx {
+            0..=8 => format!("{}", idx + 1),
+            _ => "0".to_string(),
+        };
+        let host_color = state
+            .host_colors
+            .get(&bookmark.host)
+            .map(|c| c.base)
+            .unwrap_or(Color::Gray);
+        let session_window = format!("{}:{}", bookmark.session, bookmark.window);
+        let pane_id = format_pane_id(&bookmark.pane_id);
+        let label = bookmark.label.as_deref().unwrap_or("");
+        let detail = if label.is_empty() {
+            format!("{session_window} {pane_id}")
+        } else {
+            format!("{session_window} {pane_id} {label}")
+        };
+
+        spans.push(Span::styled(
+            key,
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            bookmark.host.clone(),
+            Style::default().fg(host_color).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(" "));
+        spans.push(Span::raw(detail));
+    }
+
+    let remaining = state.config.bookmarks.len().saturating_sub(max_items);
+    if remaining > 0 {
+        if !spans.is_empty() {
+            spans.push(Span::styled(
+                "  •  ".to_string(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        spans.push(Span::styled(
+            format!("+{remaining} more"),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    if spans.is_empty() {
+        spans.push(Span::styled(
+            "No bookmarks".to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    let paragraph = Paragraph::new(Line::from(spans)).block(block);
+    f.render_widget(paragraph, area);
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
