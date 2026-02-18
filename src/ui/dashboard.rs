@@ -126,6 +126,15 @@ fn build_title(
         ));
     }
     if compact {
+        if let Some(age) = last_update_age(pane) {
+            spans.push(Span::raw(" · "));
+            spans.push(Span::styled(
+                age,
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    }
+    if compact {
         let status = match pane.status {
             PaneStatus::Down => Some("DOWN"),
             PaneStatus::Stale => Some("STALE"),
@@ -293,6 +302,9 @@ fn build_raw_content(
         ""
     };
     raw.push_str(&format!("Status: {status_label} {activity}\n"));
+    if let Some(age) = last_update_age(pane) {
+        raw.push_str(&format!("Updated: {age} ago\n"));
+    }
 
     if let Some(capture) = &pane.last_capture {
         if !capture.command.is_empty() {
@@ -317,6 +329,27 @@ fn build_raw_content(
     }
 
     raw
+}
+
+fn last_update_age(pane: &crate::model::PaneState) -> Option<String> {
+    pane.last_update.map(|instant| format_duration(instant.elapsed()))
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    if secs >= 3600 {
+        let hours = secs / 3600;
+        let minutes = (secs % 3600) / 60;
+        format!("{hours}h {minutes}m")
+    } else if secs >= 60 {
+        let minutes = secs / 60;
+        let seconds = secs % 60;
+        format!("{minutes}m {seconds}s")
+    } else if secs >= 1 {
+        format!("{secs}s")
+    } else {
+        "0s".to_string()
+    }
 }
 
 fn grid_layout(area: Rect, count: usize) -> Vec<Rect> {
