@@ -24,6 +24,14 @@ cargo build --release
 ./target/release/fleetmux
 ```
 
+## Diagnostics
+
+Run a quick connectivity and tmux discovery check without starting the TUI:
+
+```sh
+fleetmux doctor
+```
+
 On first run, FleetMux launches a setup wizard to save your hosts and writes a config to:
 
 ```
@@ -40,6 +48,17 @@ See `config.example.toml` for a complete example. The most common fields:
 - `ssh.path_extra`: extra PATH entries for locating tmux on remote hosts
 - `hosts`: logical hosts with one or more SSH targets
 - `tracked`: optional, FleetMux will prompt for windows on each start
+
+To change host colors, set `color` in the host entry:
+
+```toml
+[[hosts]]
+name = "buildbox"
+targets = ["buildbox.local"]
+color = "LightBlue"
+```
+
+Supported color names: `Black`, `Red`, `Green`, `Yellow`, `Blue`, `Magenta`, `Cyan`, `Gray`, `DarkGray`, `LightRed`, `LightGreen`, `LightYellow`, `LightBlue`, `LightMagenta`, `LightCyan`, `White`.
 
 ## Startup Selection
 

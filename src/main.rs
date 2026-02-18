@@ -1,4 +1,5 @@
 mod config;
+mod doctor;
 mod model;
 mod poller;
 mod ssh;
@@ -23,6 +24,14 @@ use tokio::sync::{mpsc, Mutex};
 #[tokio::main]
 async fn main() -> Result<()> {
     let config_path = config::config_path()?;
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "doctor" {
+        let config = config::load(&config_path)
+            .with_context(|| format!("Failed to load {}", config_path.display()))?;
+        doctor::run(&config).await?;
+        return Ok(());
+    }
+
     let mut config = ensure_hosts(&config_path)?;
     config.tracked = wizard::select_windows(&config)?;
 

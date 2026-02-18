@@ -35,11 +35,27 @@ pub async fn capture_pane(
     parse_capture(&output)
 }
 
+pub async fn list_panes(target: &str, ssh_cfg: &SshConfig) -> Result<Vec<PaneInfo>> {
+    let cmd = "tmux list-panes -a -F \"#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}\"";
+    let output = ssh::run_ssh_command(target, ssh_cfg, cmd)
+        .await
+        .with_context(|| format!("list-panes failed for {target}"))?;
+    Ok(parse_pane_list(&output))
+}
+
 pub fn list_panes_blocking(target: &str, ssh_cfg: &SshConfig) -> Result<Vec<PaneInfo>> {
     let cmd = "tmux list-panes -a -F \"#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}\"";
     let output = ssh::run_ssh_command_blocking(target, ssh_cfg, cmd)
         .with_context(|| format!("list-panes failed for {target}"))?;
     Ok(parse_pane_list(&output))
+}
+
+pub async fn list_windows(target: &str, ssh_cfg: &SshConfig) -> Result<Vec<WindowInfo>> {
+    let cmd = "tmux list-windows -a -F \"#{session_name}\t#{window_index}\t#{window_name}\"";
+    let output = ssh::run_ssh_command(target, ssh_cfg, cmd)
+        .await
+        .with_context(|| format!("list-windows failed for {target}"))?;
+    Ok(parse_window_list(&output))
 }
 
 pub fn list_windows_blocking(target: &str, ssh_cfg: &SshConfig) -> Result<Vec<WindowInfo>> {
