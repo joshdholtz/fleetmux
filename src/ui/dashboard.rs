@@ -61,14 +61,15 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         border_style = border_style.add_modifier(Modifier::BOLD);
     }
 
+    let title_color = title_color(border_color, &colors);
     let host_style = Style::default()
-        .fg(border_color)
+        .fg(title_color)
         .add_modifier(Modifier::BOLD);
     let title = build_title(
         pane.tracked.host.as_str(),
         pane,
         host_style,
-        border_color,
+        title_color,
         state.config.ui.compact,
     );
 
@@ -89,7 +90,7 @@ fn build_title(
     host: &str,
     pane: &crate::model::PaneState,
     host_style: Style,
-    label_color: Color,
+    title_color: Color,
     compact: bool,
 ) -> Line<'static> {
     let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
@@ -97,13 +98,16 @@ fn build_title(
     let mut spans = vec![
         Span::styled(host.to_string(), host_style),
         Span::raw(" "),
-        Span::raw(session_window),
+        Span::styled(session_window, Style::default().fg(title_color)),
     ];
 
     let label = build_label(pane);
     if let Some(label) = label {
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(label, label_style(label_color)));
+        spans.push(Span::raw(" — "));
+        spans.push(Span::styled(
+            label,
+            Style::default().fg(title_color).add_modifier(Modifier::BOLD),
+        ));
     }
     if compact {
         let status = match pane.status {
@@ -142,26 +146,18 @@ fn build_label(pane: &crate::model::PaneState) -> Option<String> {
     None
 }
 
-fn label_style(bg: Color) -> Style {
-    let fg = match bg {
-        Color::Yellow
-        | Color::LightYellow
-        | Color::LightGreen
-        | Color::LightBlue
-        | Color::LightCyan
-        | Color::LightMagenta
-        | Color::White
-        | Color::Gray
-        | Color::DarkGray => Color::Black,
-        _ => Color::White,
-    };
-    Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD)
-}
-
 fn format_pane_id(pane_id: &str) -> String {
     match pane_id.strip_prefix('%') {
         Some(id) => format!("pane {id}"),
         None => format!("pane {pane_id}"),
+    }
+}
+
+fn title_color(border_color: Color, colors: &crate::model::HostColors) -> Color {
+    if border_color == colors.base {
+        colors.focus
+    } else {
+        colors.base
     }
 }
 
@@ -336,6 +332,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  Enter   Take control"),
         Line::from("  r   Reload config"),
         Line::from("  e   Edit config"),
+        Line::from("  n   Set pane label"),
         Line::from("  c   Toggle compact mode"),
         Line::from("  z   Zoom focused tile"),
         Line::from("  ?   Toggle help"),

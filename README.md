@@ -49,6 +49,8 @@ See `config.example.toml` for a complete example. The most common fields:
 - `ui.join_lines`: join wrapped lines (tmux `-J`)
 - `ssh.connect_timeout_sec`: SSH connection timeout
 - `ssh.path_extra`: extra PATH entries for locating tmux on remote hosts
+- `local.enabled`: include the local machine's tmux in discovery and selection
+- `local.name`: logical host name to show for the local machine
 - `hosts`: logical hosts with one or more SSH targets
 - `tracked`: optional, FleetMux will prompt for windows on each start
 
@@ -65,8 +67,9 @@ Supported color names: `Black`, `Red`, `Green`, `Yellow`, `Blue`, `Magenta`, `Cy
 
 ## Startup Selection
 
-FleetMux prompts you on every startup to select which session windows to monitor. It then tracks all panes in the chosen windows (up to 10 total panes).
-Previously selected windows are preselected if they still exist.
+FleetMux prompts you on every startup to select individual panes. It walks hosts → sessions → windows → panes so you are not stuck with a giant flat list.
+Previously selected panes are preselected if they still exist.
+If `local.enabled = true`, the local tmux server is included as an extra host named by `local.name`.
 
 ## Keyboard Shortcuts
 
@@ -75,6 +78,7 @@ Previously selected windows are preselected if they still exist.
 - `Enter`: take control of focused pane
 - `r`: reload config
 - `e`: edit config
+- `n`: set label for focused pane
 - `c`: toggle compact mode
 - `z`: zoom focused tile
 - `?`: toggle help

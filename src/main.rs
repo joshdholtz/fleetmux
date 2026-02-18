@@ -10,6 +10,7 @@ mod wizard;
 use anyhow::{anyhow, Context, Result};
 use config::Config;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
+use dialoguer::{theme::ColorfulTheme, Input};
 use futures_util::StreamExt;
 use model::{AppState, HostColors};
 use poller::PollerHandle;
@@ -33,7 +34,8 @@ async fn main() -> Result<()> {
     }
 
     let mut config = ensure_hosts(&config_path)?;
-    config.tracked = wizard::select_windows(&config)?;
+    apply_local_host(&mut config);
+    config.tracked = wizard::select_panes(&config)?;
     config::save(&config_path, &config)?;
 
     let host_colors = build_host_colors(&config);
@@ -134,6 +136,9 @@ async fn handle_event(
                 )
                 .await?;
             }
+            KeyCode::Char('n') => {
+                set_label_for_focused(state, terminal, config_path)?;
+            }
             KeyCode::Char('c') => {
                 state.config.ui.compact = !state.config.ui.compact;
             }
@@ -202,10 +207,11 @@ async fn reload_config(
         return Err(anyhow!("Config missing hosts"));
     }
 
-    let tracked = select_windows_with_terminal(&new_config, terminal)?;
+    let mut new_config = new_config.clone();
+    apply_local_host(&mut new_config);
+    let tracked = select_panes_with_terminal(&new_config, terminal)?;
 
     pollers.stop().await;
-    let mut new_config = new_config.clone();
     new_config.tracked = tracked;
     config::save(config_path, &new_config)?;
     *config = new_config.clone();
@@ -231,14 +237,66 @@ fn edit_config(path: &Path, terminal: &mut ui::AppTerminal) -> Result<()> {
     Ok(())
 }
 
-fn select_windows_with_terminal(
+fn select_panes_with_terminal(
     config: &Config,
     terminal: &mut ui::AppTerminal,
 ) -> Result<Vec<config::TrackedPane>> {
     ui::exit_terminal(terminal)?;
-    let result = wizard::select_windows(config);
+    let result = wizard::select_panes(config);
     *terminal = ui::enter_terminal()?;
     result
+}
+
+fn set_label_for_focused(
+    state: &mut AppState,
+    terminal: &mut ui::AppTerminal,
+    config_path: &Path,
+) -> Result<()> {
+    let pane = state
+        .panes
+        .get(state.focused)
+        .ok_or_else(|| anyhow!("No focused pane"))?;
+    let host = pane.tracked.host.clone();
+    let session = pane.tracked.session.clone();
+    let window = pane.tracked.window;
+    let pane_id = pane.tracked.pane_id.clone();
+
+    ui::exit_terminal(terminal)?;
+    let theme = ColorfulTheme::default();
+    let prompt = format!("Label for {host} {session}:{window} {pane_id}");
+    let label: String = Input::with_theme(&theme)
+        .with_prompt(prompt)
+        .allow_empty(true)
+        .interact_text()?;
+    *terminal = ui::enter_terminal()?;
+
+    let label = if label.trim().is_empty() {
+        None
+    } else {
+        Some(label)
+    };
+
+    for tracked in &mut state.config.tracked {
+        if tracked.host == host
+            && tracked.session == session
+            && tracked.window == window
+            && tracked.pane_id == pane_id
+        {
+            tracked.label = label.clone();
+        }
+    }
+    for pane_state in &mut state.panes {
+        if pane_state.tracked.host == host
+            && pane_state.tracked.session == session
+            && pane_state.tracked.window == window
+            && pane_state.tracked.pane_id == pane_id
+        {
+            pane_state.tracked.label = label.clone();
+        }
+    }
+
+    config::save(config_path, &state.config)?;
+    Ok(())
 }
 
 async fn take_control(
@@ -272,24 +330,58 @@ async fn take_control(
 
     ui::exit_terminal(terminal)?;
 
-    let mut cmd = tokio::process::Command::new("ssh");
-    cmd.arg("-t");
-    for arg in ssh::build_ssh_args(&state.config.ssh) {
-        cmd.arg(arg);
-    }
-    cmd.arg(&target);
-    cmd.arg(remote_cmd);
-    cmd.stdin(Stdio::inherit());
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
+    if ssh::is_local_target(&target) {
+        let local_cmd = ssh::wrap_remote_cmd(&state.config.ssh, &remote_cmd);
+        let status = tokio::process::Command::new("sh")
+            .arg("-lc")
+            .arg(local_cmd)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .await
+            .context("Failed to launch tmux")?;
+        if !status.success() {
+            eprintln!("tmux exited with status {status}");
+        }
+    } else {
+        let mut cmd = tokio::process::Command::new("ssh");
+        cmd.arg("-t");
+        for arg in ssh::build_ssh_args(&state.config.ssh) {
+            cmd.arg(arg);
+        }
+        cmd.arg(&target);
+        cmd.arg(remote_cmd);
+        cmd.stdin(Stdio::inherit());
+        cmd.stdout(Stdio::inherit());
+        cmd.stderr(Stdio::inherit());
 
-    let status = cmd.status().await.context("Failed to launch ssh")?;
-    if !status.success() {
-        eprintln!("ssh exited with status {status}");
+        let status = cmd.status().await.context("Failed to launch ssh")?;
+        if !status.success() {
+            eprintln!("ssh exited with status {status}");
+        }
     }
 
     *terminal = ui::enter_terminal()?;
     Ok(())
+}
+
+fn apply_local_host(config: &mut Config) {
+    if !config.local.enabled {
+        return;
+    }
+    let name = config.local.name.trim();
+    let name = if name.is_empty() { "local" } else { name };
+    if config.hosts.iter().any(|host| host.name == name) {
+        return;
+    }
+    config.hosts.push(config::HostConfig {
+        name: name.to_string(),
+        targets: vec!["local".to_string()],
+        strategy: Some("local".to_string()),
+        color: config.local.color.clone(),
+        tags: Some(vec!["local".to_string()]),
+    });
 }
 
 fn build_host_colors(config: &Config) -> HashMap<String, HostColors> {

@@ -9,6 +9,7 @@ pub struct Config {
     pub ui: UiConfig,
     pub colors: ColorConfig,
     pub ssh: SshConfig,
+    pub local: LocalConfig,
     pub hosts: Vec<HostConfig>,
     pub tracked: Vec<TrackedPane>,
 }
@@ -19,6 +20,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             colors: ColorConfig::default(),
             ssh: SshConfig::default(),
+            local: LocalConfig::default(),
             hosts: Vec::new(),
             tracked: Vec::new(),
         }
@@ -80,6 +82,24 @@ pub struct SshConfig {
     pub control_master: bool,
     pub control_persist_sec: u64,
     pub path_extra: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LocalConfig {
+    pub enabled: bool,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+impl Default for LocalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            name: "local".to_string(),
+            color: None,
+        }
+    }
 }
 
 impl Default for SshConfig {

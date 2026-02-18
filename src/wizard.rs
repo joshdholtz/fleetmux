@@ -1,18 +1,28 @@
 use crate::config::{Config, HostConfig, TrackedPane};
 use crate::ssh::HostResolver;
-use crate::tmux::{self, PaneInfo};
+use crate::tmux::{self, WindowInfo};
 use anyhow::{anyhow, Context, Result};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 #[derive(Clone, Debug)]
-struct WindowSelection {
+struct PaneSelection {
     host: String,
     session: String,
     window: u32,
     window_name: String,
-    panes: Vec<PaneInfo>,
+    pane_id: String,
+    command: String,
+    title: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+struct PaneKey {
+    host: String,
+    session: String,
+    window: u32,
+    pane_id: String,
 }
 
 pub fn run_host_setup(path: &Path) -> Result<Config> {
@@ -90,26 +100,27 @@ pub fn run_host_setup(path: &Path) -> Result<Config> {
     Ok(config)
 }
 
-pub fn select_windows(config: &Config) -> Result<Vec<TrackedPane>> {
+pub fn select_panes(config: &Config) -> Result<Vec<TrackedPane>> {
     let theme = ColorfulTheme::default();
-    let previous = previous_window_keys(&config.tracked);
+    let previous = previous_pane_keys(&config.tracked);
+    let previous_labels = previous_pane_labels(&config.tracked);
 
     loop {
-        let windows = discover_windows(config, &theme)?;
-        if windows.is_empty() {
-            return Err(anyhow!("No tmux windows discovered"));
+        let panes = discover_panes(config, &theme)?;
+        if panes.is_empty() {
+            return Err(anyhow!("No tmux panes discovered"));
         }
 
-        let selections = select_window_items(&windows, &previous, &theme)?;
-        let tracked = build_tracked_from_windows(&windows, &selections);
+        let selected = select_panes_tree(&panes, &previous, &theme)?;
+        let tracked = build_tracked_from_panes(&panes, &selected, &previous_labels);
 
         if tracked.is_empty() {
-            return Err(anyhow!("At least one window is required"));
+            return Err(anyhow!("At least one pane is required"));
         }
 
         if tracked.len() > 10 {
             println!(
-                "Selected windows contain {} panes. Limit is 10. Select fewer windows.",
+                "Selected panes: {}. Limit is 10. Select fewer panes.",
                 tracked.len()
             );
             continue;
@@ -119,9 +130,9 @@ pub fn select_windows(config: &Config) -> Result<Vec<TrackedPane>> {
     }
 }
 
-fn discover_windows(config: &Config, theme: &ColorfulTheme) -> Result<Vec<WindowSelection>> {
+fn discover_panes(config: &Config, theme: &ColorfulTheme) -> Result<Vec<PaneSelection>> {
     let mut resolver = HostResolver::new();
-    let mut windows = Vec::new();
+    let mut panes = Vec::new();
 
     for host in &config.hosts {
         let target = match resolver.resolve_target_blocking(host, &config.ssh) {
@@ -132,154 +143,281 @@ fn discover_windows(config: &Config, theme: &ColorfulTheme) -> Result<Vec<Window
             }
         };
 
-        println!("Discovering windows on {} ({})", host.name, target);
+        println!("Discovering panes on {} ({})", host.name, target);
 
-        let window_names = match tmux::list_windows_blocking(&target, &config.ssh) {
-            Ok(list) => list,
-            Err(err) => {
-                println!("Warning: failed to list windows on {}: {err}", host.name);
-                Vec::new()
-            }
-        };
-
-        let panes = tmux::list_panes_blocking(&target, &config.ssh)
-            .with_context(|| format!("Failed to list panes on {}", host.name))?;
-
-        let mut panes_by_window: HashMap<(String, u32), Vec<PaneInfo>> = HashMap::new();
-        for pane in panes {
-            panes_by_window
-                .entry((pane.session.clone(), pane.window))
-                .or_default()
-                .push(pane);
-        }
-
-        let mut names_by_window: HashMap<(String, u32), String> = HashMap::new();
+        let window_names = tmux::list_windows_blocking(&target, &config.ssh)
+            .unwrap_or_else(|_| Vec::<WindowInfo>::new());
+        let mut window_map: HashMap<(String, u32), String> = HashMap::new();
         for window in window_names {
-            names_by_window.insert((window.session, window.window), window.name);
+            window_map.insert((window.session, window.window), window.name);
         }
 
-        for ((session, window), panes) in panes_by_window {
-            let window_name = names_by_window
-                .remove(&(session.clone(), window))
+        let mut host_panes = tmux::list_panes_blocking(&target, &config.ssh)
+            .with_context(|| format!("Failed to list panes on {}", host.name))?;
+        host_panes.sort_by(|a, b| a.session.cmp(&b.session));
+        for pane in host_panes {
+            let window_name = window_map
+                .get(&(pane.session.clone(), pane.window))
+                .cloned()
                 .unwrap_or_default();
-            windows.push(WindowSelection {
+            panes.push(PaneSelection {
                 host: host.name.clone(),
-                session,
-                window,
+                session: pane.session,
+                window: pane.window,
                 window_name,
-                panes,
+                pane_id: pane.pane_id,
+                command: pane.command,
+                title: pane.title,
             });
         }
     }
 
-    windows.sort_by(|a, b| {
-        (a.host.as_str(), a.session.as_str(), a.window)
-            .cmp(&(b.host.as_str(), b.session.as_str(), b.window))
-    });
-
-    if windows.is_empty() {
+    if panes.is_empty() {
         let retry = Confirm::with_theme(theme)
-            .with_prompt("No windows found. Continue anyway?")
+            .with_prompt("No panes found. Continue anyway?")
             .default(false)
             .interact()?;
         if !retry {
-            return Err(anyhow!("No tmux windows discovered"));
+            return Err(anyhow!("No tmux panes discovered"));
         }
     }
 
-    Ok(windows)
+    Ok(panes)
 }
 
-fn select_window_items(
-    windows: &[WindowSelection],
-    previous: &HashSet<WindowKey>,
+fn select_panes_tree(
+    panes: &[PaneSelection],
+    previous: &HashSet<PaneKey>,
     theme: &ColorfulTheme,
-) -> Result<Vec<usize>> {
-    let items: Vec<String> = windows
-        .iter()
-        .map(|window| {
-            let name = if window.window_name.is_empty() {
-                "(unnamed)".to_string()
-            } else {
-                window.window_name.clone()
-            };
-            format!(
-                "{} {}:{} {} ({} panes)",
-                window.host,
-                window.session,
-                window.window,
-                name,
-                window.panes.len()
-            )
-        })
-        .collect();
-
-    let defaults: Vec<bool> = windows
-        .iter()
-        .map(|window| {
-            previous.contains(&WindowKey {
-                host: window.host.clone(),
-                session: window.session.clone(),
-                window: window.window,
-            })
-        })
-        .collect();
-
-    let selections = MultiSelect::with_theme(theme)
-        .with_prompt("Select windows to monitor (total panes must be <= 10)")
-        .items(&items)
-        .defaults(&defaults)
-        .interact()?;
-
-    if selections.is_empty() {
-        return Err(anyhow!("At least one window is required"));
+) -> Result<Vec<PaneKey>> {
+    let mut by_host: BTreeMap<String, BTreeMap<String, BTreeMap<u32, Vec<PaneSelection>>>> =
+        BTreeMap::new();
+    for pane in panes {
+        by_host
+            .entry(pane.host.clone())
+            .or_default()
+            .entry(pane.session.clone())
+            .or_default()
+            .entry(pane.window)
+            .or_default()
+            .push(pane.clone());
     }
 
-    Ok(selections)
-}
+    let hosts: Vec<String> = by_host.keys().cloned().collect();
+    let selected_hosts = if hosts.len() == 1 {
+        hosts.clone()
+    } else {
+        let defaults: Vec<bool> = hosts
+            .iter()
+            .map(|host| previous.iter().any(|key| &key.host == host))
+            .collect();
+        let selected_indexes = MultiSelect::with_theme(theme)
+            .with_prompt("Select hosts")
+            .items(&hosts)
+            .defaults(&defaults)
+            .interact()?;
+        selected_indexes
+            .into_iter()
+            .filter_map(|idx| hosts.get(idx).cloned())
+            .collect()
+    };
 
-fn build_tracked_from_windows(
-    windows: &[WindowSelection],
-    selections: &[usize],
-) -> Vec<TrackedPane> {
-    let mut tracked = Vec::new();
+    if selected_hosts.is_empty() {
+        return Err(anyhow!("At least one host is required"));
+    }
 
-    for &index in selections {
-        if let Some(window) = windows.get(index) {
-            let label = if window.window_name.is_empty() {
-                None
-            } else {
-                Some(window.window_name.clone())
+    let mut selected = Vec::new();
+
+    for host in selected_hosts {
+        let sessions_map = match by_host.get(&host) {
+            Some(map) => map,
+            None => continue,
+        };
+        let sessions: Vec<String> = sessions_map.keys().cloned().collect();
+        let session_defaults: Vec<bool> = sessions
+            .iter()
+            .map(|session| {
+                previous
+                    .iter()
+                    .any(|key| key.host == host && key.session == *session)
+            })
+            .collect();
+        let selected_sessions_idx = MultiSelect::with_theme(theme)
+            .with_prompt(format!("Select sessions on {host}"))
+            .items(&sessions)
+            .defaults(&session_defaults)
+            .interact()?;
+        if selected_sessions_idx.is_empty() {
+            continue;
+        }
+
+        for session_idx in selected_sessions_idx {
+            let session = match sessions.get(session_idx) {
+                Some(val) => val.clone(),
+                None => continue,
             };
-            for pane in &window.panes {
-                tracked.push(TrackedPane {
-                    host: window.host.clone(),
-                    session: pane.session.clone(),
-                    window: pane.window,
-                    pane_id: pane.pane_id.clone(),
-                    label: label.clone(),
-                });
+            let windows_map = match sessions_map.get(&session) {
+                Some(map) => map,
+                None => continue,
+            };
+            let mut windows: Vec<(u32, String, usize)> = Vec::new();
+            for (window, panes) in windows_map {
+                let name = panes
+                    .first()
+                    .map(|pane| pane.window_name.clone())
+                    .unwrap_or_default();
+                windows.push((*window, name, panes.len()));
+            }
+            windows.sort_by(|a, b| a.0.cmp(&b.0));
+            let window_items: Vec<String> = windows
+                .iter()
+                .map(|(window, name, count)| {
+                    let label = if name.is_empty() {
+                        "(unnamed)".to_string()
+                    } else {
+                        name.clone()
+                    };
+                    format!("{}:{} {} ({} panes)", session, window, label, count)
+                })
+                .collect();
+            let window_defaults: Vec<bool> = windows
+                .iter()
+                .map(|(window, _, _)| {
+                    previous.iter().any(|key| {
+                        key.host == host && key.session == session && key.window == *window
+                    })
+                })
+                .collect();
+            let selected_windows_idx = MultiSelect::with_theme(theme)
+                .with_prompt(format!("Select windows in {host} {session}"))
+                .items(&window_items)
+                .defaults(&window_defaults)
+                .interact()?;
+            if selected_windows_idx.is_empty() {
+                continue;
+            }
+
+            for window_idx in selected_windows_idx {
+                let (window_id, _, _) = match windows.get(window_idx) {
+                    Some(val) => val.clone(),
+                    None => continue,
+                };
+                let panes_in_window = match windows_map.get(&window_id) {
+                    Some(val) => val,
+                    None => continue,
+                };
+                let pane_items: Vec<String> = panes_in_window
+                    .iter()
+                    .map(|pane| {
+                        let title = if pane.title.is_empty() {
+                            "".to_string()
+                        } else {
+                            format!(" - {}", pane.title)
+                        };
+                        format!("{} {}{}", pane.pane_id, pane.command, title)
+                    })
+                    .collect();
+                let pane_defaults: Vec<bool> = panes_in_window
+                    .iter()
+                    .map(|pane| {
+                        previous.contains(&PaneKey {
+                            host: host.clone(),
+                            session: session.clone(),
+                            window: window_id,
+                            pane_id: pane.pane_id.clone(),
+                        })
+                    })
+                    .collect();
+                let selected_panes_idx = MultiSelect::with_theme(theme)
+                    .with_prompt(format!(
+                        "Select panes in {host} {session}:{window_id}"
+                    ))
+                    .items(&pane_items)
+                    .defaults(&pane_defaults)
+                    .interact()?;
+
+                for pane_idx in selected_panes_idx {
+                    if let Some(pane) = panes_in_window.get(pane_idx) {
+                        selected.push(PaneKey {
+                            host: host.clone(),
+                            session: session.clone(),
+                            window: window_id,
+                            pane_id: pane.pane_id.clone(),
+                        });
+                    }
+                }
             }
         }
     }
 
-    tracked
+    Ok(selected)
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-struct WindowKey {
-    host: String,
-    session: String,
-    window: u32,
-}
+fn build_tracked_from_panes(
+    panes: &[PaneSelection],
+    selections: &[PaneKey],
+    previous_labels: &HashMap<PaneKey, String>,
+) -> Vec<TrackedPane> {
+    let mut pane_map: HashMap<PaneKey, PaneSelection> = HashMap::new();
+    for pane in panes {
+        pane_map.insert(
+            PaneKey {
+                host: pane.host.clone(),
+                session: pane.session.clone(),
+                window: pane.window,
+                pane_id: pane.pane_id.clone(),
+            },
+            pane.clone(),
+        );
+    }
 
-fn previous_window_keys(tracked: &[TrackedPane]) -> HashSet<WindowKey> {
-    tracked
-        .iter()
-        .map(|pane| WindowKey {
+    let mut tracked = Vec::new();
+    for key in selections {
+        let pane = match pane_map.get(key) {
+            Some(pane) => pane,
+            None => continue,
+        };
+        let label = previous_labels.get(key).cloned();
+        tracked.push(TrackedPane {
             host: pane.host.clone(),
             session: pane.session.clone(),
             window: pane.window,
+            pane_id: pane.pane_id.clone(),
+            label,
+        });
+    }
+
+    tracked
+}
+
+fn previous_pane_keys(tracked: &[TrackedPane]) -> HashSet<PaneKey> {
+    tracked
+        .iter()
+        .map(|pane| PaneKey {
+            host: pane.host.clone(),
+            session: pane.session.clone(),
+            window: pane.window,
+            pane_id: pane.pane_id.clone(),
         })
         .collect()
+}
+
+fn previous_pane_labels(tracked: &[TrackedPane]) -> HashMap<PaneKey, String> {
+    let mut labels = HashMap::new();
+    for pane in tracked {
+        if let Some(label) = &pane.label {
+            if label.is_empty() {
+                continue;
+            }
+            labels
+                .entry(PaneKey {
+                    host: pane.host.clone(),
+                    session: pane.session.clone(),
+                    window: pane.window,
+                    pane_id: pane.pane_id.clone(),
+                })
+                .or_insert_with(|| label.clone());
+        }
+    }
+    labels
 }

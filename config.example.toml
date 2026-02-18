@@ -24,6 +24,11 @@ control_master = true
 control_persist_sec = 600
 path_extra = ["/usr/local/bin", "/opt/homebrew/bin"]
 
+[local]
+enabled = true
+name = "local"
+# color = "LightBlue"
+
 [[hosts]]
 name = "buildbox"
 targets = ["buildbox.local", "100.64.12.34"]

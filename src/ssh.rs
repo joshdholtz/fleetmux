@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use tokio::process::Command;
 
 const CACHE_TTL: Duration = Duration::from_secs(60);
+const LOCAL_TARGET: &str = "local";
 
 #[derive(Debug, Clone)]
 struct CacheEntry {
@@ -77,6 +78,10 @@ impl HostResolver {
 }
 
 pub async fn run_ssh_command(target: &str, ssh: &SshConfig, remote_cmd: &str) -> Result<String> {
+    if is_local_target(target) {
+        return run_local_command(ssh, remote_cmd).await;
+    }
+
     let mut cmd = Command::new("ssh");
     for arg in build_ssh_args(ssh) {
         cmd.arg(arg);
@@ -104,6 +109,10 @@ pub fn run_ssh_command_blocking(
     ssh: &SshConfig,
     remote_cmd: &str,
 ) -> Result<String> {
+    if is_local_target(target) {
+        return run_local_command_blocking(ssh, remote_cmd);
+    }
+
     let mut cmd = std::process::Command::new("ssh");
     for arg in build_ssh_args(ssh) {
         cmd.arg(arg);
@@ -127,11 +136,15 @@ pub fn run_ssh_command_blocking(
 
 pub async fn test_target(target: &str, ssh: &SshConfig) -> Result<()> {
     let cmd = "tmux -V";
+    if is_local_target(target) {
+        run_local_command(ssh, cmd).await.map(|_| ())
+    } else {
     let timeout = Duration::from_secs(ssh.connect_timeout_sec.max(1));
     let result = tokio::time::timeout(timeout, run_ssh_command(target, ssh, cmd)).await;
     match result {
         Ok(res) => res.map(|_| ()),
         Err(_) => Err(anyhow!("ssh connect timeout for {target}")),
+    }
     }
 }
 
@@ -171,4 +184,47 @@ pub fn wrap_remote_cmd(ssh: &SshConfig, remote_cmd: &str) -> String {
     }
     let extra = ssh.path_extra.join(":");
     format!("PATH=\"$PATH:{extra}\"; export PATH; {remote_cmd}")
+}
+
+pub fn is_local_target(target: &str) -> bool {
+    target.eq_ignore_ascii_case(LOCAL_TARGET)
+}
+
+async fn run_local_command(ssh: &SshConfig, remote_cmd: &str) -> Result<String> {
+    let wrapped = wrap_remote_cmd(ssh, remote_cmd);
+    let output = Command::new("sh")
+        .arg("-lc")
+        .arg(wrapped)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .context("local command failed")?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
+    } else {
+        Err(anyhow!(
+            "local command failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        ))
+    }
+}
+
+fn run_local_command_blocking(ssh: &SshConfig, remote_cmd: &str) -> Result<String> {
+    let wrapped = wrap_remote_cmd(ssh, remote_cmd);
+    let output = std::process::Command::new("sh")
+        .arg("-lc")
+        .arg(wrapped)
+        .stdin(Stdio::null())
+        .output()
+        .context("local command failed")?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
+    } else {
+        Err(anyhow!(
+            "local command failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        ))
+    }
 }
