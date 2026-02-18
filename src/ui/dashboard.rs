@@ -1,10 +1,15 @@
 use crate::model::{AppState, PaneStatus};
+use ansi_to_tui::IntoText as _;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ansi_to_tui::IntoText as _;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const ACTIVE_WINDOW: Duration = Duration::from_secs(5);
+const IDLE_AFTER: Duration = Duration::from_secs(30);
+const SPINNER_FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 
 pub fn draw(f: &mut Frame, state: &AppState) {
     let area = f.area();
@@ -130,7 +135,9 @@ fn build_title(
             spans.push(Span::raw(" · "));
             spans.push(Span::styled(
                 format!("chg {age}"),
-                Style::default().fg(Color::DarkGray),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
     }
@@ -210,6 +217,7 @@ fn build_content(state: &AppState, index: usize, compact: bool) -> Content {
         PaneStatus::Down => "DOWN",
         PaneStatus::Stale => "STALE",
     };
+    let indicator = activity_indicator(pane);
     if compact {
         if pane.status != PaneStatus::Ok {
             let status_line = format!("Status: {status_label}");
@@ -229,9 +237,41 @@ fn build_content(state: &AppState, index: usize, compact: bool) -> Content {
             }
         }
     } else {
-        let activity = if state.is_active(index) { "*" } else { "" };
-        let status_line = format!("Status: {status_label} {activity}");
-        lines.push(Line::from(status_line));
+        let status_line = status_line(status_label, &indicator);
+        if indicator.is_empty() {
+            lines.push(Line::from(status_line));
+        } else if indicator == "idle" {
+            lines.push(Line::from(vec![
+                Span::raw("Status: "),
+                Span::raw(status_label),
+                Span::raw(" · "),
+                Span::styled(indicator.clone(), indicator_style(pane)),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw("Status: "),
+                Span::raw(status_label),
+                Span::raw(" "),
+                Span::styled(indicator.clone(), indicator_style(pane)),
+            ]));
+        }
+
+        if let Some(age) = last_change_age(pane) {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    "⏱ ".to_string(),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("Changed: {age} ago"),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+        }
 
         if let Some(capture) = &pane.last_capture {
             if !capture.command.is_empty() {
@@ -266,9 +306,9 @@ fn build_content(state: &AppState, index: usize, compact: bool) -> Content {
 }
 
 fn build_raw_content(
-    state: &AppState,
+    _state: &AppState,
     pane: &crate::model::PaneState,
-    index: usize,
+    _index: usize,
     compact: bool,
 ) -> String {
     let mut raw = String::new();
@@ -277,6 +317,7 @@ fn build_raw_content(
         PaneStatus::Down => "DOWN",
         PaneStatus::Stale => "STALE",
     };
+    let indicator = activity_indicator(pane);
 
     if compact {
         if pane.status != PaneStatus::Ok {
@@ -296,14 +337,12 @@ fn build_raw_content(
         return raw;
     }
 
-    let activity = if state.is_active(index) {
-        "*"
-    } else {
-        ""
-    };
-    raw.push_str(&format!("Status: {status_label} {activity}\n"));
+    let status_line = status_line(status_label, &indicator);
+    raw.push_str(&format!("{status_line}\n"));
     if let Some(age) = last_change_age(pane) {
-        raw.push_str(&format!("Changed: {age} ago\n"));
+        raw.push_str(&format!(
+            "\u{1b}[33;1m⏱ Changed: {age} ago\u{1b}[0m\n"
+        ));
     }
 
     if let Some(capture) = &pane.last_capture {
@@ -349,6 +388,50 @@ fn format_duration(duration: std::time::Duration) -> String {
         format!("{secs}s")
     } else {
         "0s".to_string()
+    }
+}
+
+fn activity_indicator(pane: &crate::model::PaneState) -> String {
+    if pane.status != PaneStatus::Ok {
+        return String::new();
+    }
+    let Some(last) = pane.last_change else {
+        return "idle".to_string();
+    };
+    let age = last.elapsed();
+    if age <= ACTIVE_WINDOW {
+        spinner_frame().to_string()
+    } else if age >= IDLE_AFTER {
+        "idle".to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn spinner_frame() -> &'static str {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let index = (millis / 125) as usize % SPINNER_FRAMES.len();
+    SPINNER_FRAMES[index]
+}
+
+fn status_line(status: &str, indicator: &str) -> String {
+    if indicator.is_empty() {
+        format!("Status: {status}")
+    } else if indicator == "idle" {
+        format!("Status: {status} · idle")
+    } else {
+        format!("Status: {status} {indicator}")
+    }
+}
+
+fn indicator_style(pane: &crate::model::PaneState) -> Style {
+    if pane.status != PaneStatus::Ok {
+        Style::default()
+    } else {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     }
 }
 
