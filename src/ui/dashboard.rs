@@ -1,12 +1,13 @@
 use crate::model::{AppState, PaneStatus};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ansi_to_tui::IntoText as _;
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 pub fn draw(f: &mut Frame, state: &AppState) {
-    let area = f.size();
+    let area = f.area();
     if state.panes.is_empty() {
         let block = Block::default().borders(Borders::ALL).title("fleetmux");
         let paragraph = Paragraph::new("No tracked panes. Run the setup wizard.").block(block);
@@ -123,8 +124,13 @@ fn build_title(
     Line::from(spans)
 }
 
-fn build_content(state: &AppState, index: usize, compact: bool) -> Vec<Line<'static>> {
+fn build_content(state: &AppState, index: usize, compact: bool) -> Text<'static> {
     let pane = &state.panes[index];
+    if state.config.ui.ansi {
+        let raw = build_raw_content(state, pane, index, compact);
+        return raw.into_text().unwrap_or_else(|_| Text::from(raw));
+    }
+
     let mut lines = Vec::new();
 
     let status_label = match pane.status {
@@ -180,7 +186,70 @@ fn build_content(state: &AppState, index: usize, compact: bool) -> Vec<Line<'sta
         }
     }
 
-    lines
+    Text::from(lines)
+}
+
+fn build_raw_content(
+    state: &AppState,
+    pane: &crate::model::PaneState,
+    index: usize,
+    compact: bool,
+) -> String {
+    let mut raw = String::new();
+    let status_label = match pane.status {
+        PaneStatus::Ok => "OK",
+        PaneStatus::Down => "DOWN",
+        PaneStatus::Stale => "STALE",
+    };
+
+    if compact {
+        if pane.status != PaneStatus::Ok {
+            raw.push_str(&format!("Status: {status_label}\n"));
+        }
+        if let Some(capture) = &pane.last_capture {
+            raw.push_str(&capture.lines.join("\n"));
+        } else {
+            raw.push_str("Waiting for data...");
+        }
+        if pane.status == PaneStatus::Down {
+            if let Some(err) = &pane.error {
+                raw.push('\n');
+                raw.push_str(&format!("Error: {err}"));
+            }
+        }
+        return raw;
+    }
+
+    let activity = if state.is_active(index) {
+        "*"
+    } else {
+        ""
+    };
+    raw.push_str(&format!("Status: {status_label} {activity}\n"));
+
+    if let Some(capture) = &pane.last_capture {
+        if !capture.command.is_empty() {
+            raw.push_str(&format!("Cmd: {}\n", capture.command));
+        } else if !capture.title.is_empty() {
+            raw.push_str(&format!("Title: {}\n", capture.title));
+        }
+        if let Some(label) = &pane.tracked.label {
+            raw.push_str(&format!("Label: {label}\n"));
+        }
+        raw.push('\n');
+        raw.push_str(&capture.lines.join("\n"));
+    } else {
+        raw.push_str("Waiting for data...");
+    }
+
+    if pane.status == PaneStatus::Down {
+        if let Some(err) = &pane.error {
+            raw.push('\n');
+            raw.push_str(&format!("Error: {err}"));
+        }
+    }
+
+    raw
 }
 
 fn grid_layout(area: Rect, count: usize) -> Vec<Rect> {

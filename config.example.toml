@@ -4,6 +4,8 @@ lines = 40
 layout = "auto"
 theme = "default"
 compact = false
+ansi = true
+join_lines = false
 
 [colors]
 default_host_palette = [

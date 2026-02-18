@@ -33,6 +33,8 @@ pub struct UiConfig {
     pub layout: String,
     pub theme: String,
     pub compact: bool,
+    pub ansi: bool,
+    pub join_lines: bool,
 }
 
 impl Default for UiConfig {
@@ -43,6 +45,8 @@ impl Default for UiConfig {
             layout: "auto".to_string(),
             theme: "default".to_string(),
             compact: false,
+            ansi: true,
+            join_lines: false,
         }
     }
 }

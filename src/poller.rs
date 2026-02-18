@@ -34,6 +34,8 @@ pub fn start_pollers(
         let ssh_cfg = config.ssh.clone();
         let refresh = Duration::from_millis(config.ui.refresh_ms);
         let lines = config.ui.lines;
+        let join_lines = config.ui.join_lines;
+        let ansi = config.ui.ansi;
         let mut shutdown_rx = shutdown.subscribe();
         let tx = tx.clone();
         let resolver = Arc::clone(&resolver);
@@ -49,7 +51,14 @@ pub fn start_pollers(
                         };
 
                         match target {
-                            Ok(target) => match tmux::capture_pane(&target, &tracked.pane_id, lines, &ssh_cfg).await {
+                            Ok(target) => match tmux::capture_pane(
+                                &target,
+                                &tracked.pane_id,
+                                lines,
+                                join_lines,
+                                ansi,
+                                &ssh_cfg,
+                            ).await {
                                 Ok(capture) => PaneUpdate {
                                     index,
                                     capture: Some(capture),

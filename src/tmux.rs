@@ -23,11 +23,21 @@ pub async fn capture_pane(
     target: &str,
     pane_id: &str,
     lines: usize,
+    join_lines: bool,
+    ansi: bool,
     ssh_cfg: &SshConfig,
 ) -> Result<PaneCapture> {
+    let mut capture_cmd = String::from("tmux capture-pane -p ");
+    if ansi {
+        capture_cmd.push_str("-e ");
+    }
+    if join_lines {
+        capture_cmd.push_str("-J ");
+    }
+    capture_cmd.push_str(&format!("-t {pane_id} -S -{lines}"));
     let cmd = format!(
         "tmux display-message -p -t {pane_id} '#{{pane_current_command}}\t#{{pane_title}}' \
-         && tmux capture-pane -p -J -t {pane_id} -S -{lines}"
+         && {capture_cmd}"
     );
     let output = ssh::run_ssh_command(target, ssh_cfg, &cmd)
         .await

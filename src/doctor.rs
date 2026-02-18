@@ -73,7 +73,15 @@ pub async fn run(config: &Config) -> Result<()> {
 
         if let Some(pane) = panes.first() {
             println!("Capture sample: {}:{} {}", pane.session, pane.window, pane.pane_id);
-            match tmux::capture_pane(&target, &pane.pane_id, 10, &config.ssh).await {
+            match tmux::capture_pane(
+                &target,
+                &pane.pane_id,
+                10,
+                config.ui.join_lines,
+                config.ui.ansi,
+                &config.ssh,
+            )
+            .await {
                 Ok(capture) => {
                     for line in capture.lines {
                         println!("  {line}");
