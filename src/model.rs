@@ -104,6 +104,7 @@ pub struct AppState {
     pub zoomed: bool,
     pub host_colors: HashMap<String, HostColors>,
     pub activity_states: Vec<ActivityState>,
+    pub notify_snooze_until: Option<Instant>,
 }
 
 impl AppState {
@@ -123,6 +124,7 @@ impl AppState {
             zoomed: false,
             host_colors,
             activity_states,
+            notify_snooze_until: None,
         }
     }
 

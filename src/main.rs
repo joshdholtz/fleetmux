@@ -169,25 +169,37 @@ async fn main() -> Result<()> {
                 if matches!(mode, Mode::Dashboard) {
                     state.refresh_stale();
                     let stopped = state.update_activity_states();
-                    if state.config.ui.bell_on_stop && stopped > 0 {
-                        ui::bell()?;
-                    }
-                    if state.config.ui.macos_notification_on_stop && stopped > 0 {
-                        let mut allow_notify = true;
-                        if state.config.ui.macos_notify_only_when_inactive {
-                            if let Ok(Some(app)) = ui::macos_frontmost_app() {
-                                allow_notify = !state
-                                    .config
-                                    .ui
-                                    .macos_notify_ignore_apps
-                                    .iter()
-                                    .any(|name| name.eq_ignore_ascii_case(&app));
+                    let now = std::time::Instant::now();
+                    let snoozed = state
+                        .notify_snooze_until
+                        .map(|until| now < until)
+                        .unwrap_or(false);
+                    if !snoozed {
+                        if state.config.ui.bell_on_stop && stopped > 0 {
+                            ui::bell()?;
+                        }
+                        if state.config.ui.macos_notification_on_stop && stopped > 0 {
+                            let mut allow_notify = true;
+                            if state.config.ui.macos_notify_only_when_inactive {
+                                allow_notify = match ui::macos_frontmost_app() {
+                                    Ok(Some(app)) => !state
+                                        .config
+                                        .ui
+                                        .macos_notify_ignore_apps
+                                        .iter()
+                                        .any(|name| name.eq_ignore_ascii_case(&app)),
+                                    _ => false,
+                                };
+                            }
+                            if allow_notify {
+                                let suffix = if stopped == 1 { "" } else { "s" };
+                                let message = format!("{stopped} pane{suffix} stopped updating");
+                                let _ = ui::notify_macos("FleetMux", &message);
                             }
                         }
-                        if allow_notify {
-                            let suffix = if stopped == 1 { "" } else { "s" };
-                            let message = format!("{stopped} pane{suffix} stopped updating");
-                            let _ = ui::notify_macos("FleetMux", &message);
+                    } else if let Some(until) = state.notify_snooze_until {
+                        if now >= until {
+                            state.notify_snooze_until = None;
                         }
                     }
                 }
@@ -257,12 +269,14 @@ async fn handle_dashboard_event(
             }
             KeyCode::Enter => {
                 take_control(state, resolver, terminal).await?;
+                set_notify_snooze(state);
             }
             KeyCode::Char(ch) if ch.is_ascii_digit() => {
                 if let Some(index) = bookmark_index_from_key(ch) {
                     if let Some(bookmark) = state.config.bookmarks.get(index) {
                         take_control_for_tracked(&state.config, resolver, terminal, bookmark)
                             .await?;
+                        set_notify_snooze(state);
                     }
                 }
             }
@@ -447,6 +461,15 @@ fn bookmark_index_from_key(ch: char) -> Option<usize> {
         '0' => Some(9),
         _ => None,
     }
+}
+
+fn set_notify_snooze(state: &mut AppState) {
+    if state.config.ui.notify_snooze_sec == 0 {
+        return;
+    }
+    let until = std::time::Instant::now()
+        + std::time::Duration::from_secs(state.config.ui.notify_snooze_sec);
+    state.notify_snooze_until = Some(until);
 }
 
 async fn take_control(

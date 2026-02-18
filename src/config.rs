@@ -43,6 +43,7 @@ pub struct UiConfig {
     pub macos_notification_on_stop: bool,
     pub macos_notify_only_when_inactive: bool,
     pub macos_notify_ignore_apps: Vec<String>,
+    pub notify_snooze_sec: u64,
 }
 
 impl Default for UiConfig {
@@ -60,6 +61,7 @@ impl Default for UiConfig {
             macos_notify_only_when_inactive: false,
             macos_notify_ignore_apps: vec![
                 "Ghostty".to_string(),
+                "Ghosty".to_string(),
                 "Terminal".to_string(),
                 "iTerm2".to_string(),
                 "WezTerm".to_string(),
@@ -67,6 +69,7 @@ impl Default for UiConfig {
                 "kitty".to_string(),
                 "Hyper".to_string(),
             ],
+            notify_snooze_sec: 20,
         }
     }
 }
