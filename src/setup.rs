@@ -373,7 +373,7 @@ impl SetupState {
             .constraints([
                 Constraint::Percentage(50),
                 Constraint::Percentage(35),
-                Constraint::Length(8),
+                Constraint::Length(9),
             ])
             .split(area);
 
@@ -921,6 +921,10 @@ impl SetupState {
                 label: "macOS notify on stop",
                 enabled: self.config.ui.macos_notification_on_stop,
             },
+            SettingItem {
+                label: "Notify only when inactive",
+                enabled: self.config.ui.macos_notify_only_when_inactive,
+            },
         ]
     }
 
@@ -932,6 +936,8 @@ impl SetupState {
             3 => self.config.ui.bell_on_stop = !self.config.ui.bell_on_stop,
             4 => self.config.ui.macos_notification_on_stop =
                 !self.config.ui.macos_notification_on_stop,
+            5 => self.config.ui.macos_notify_only_when_inactive =
+                !self.config.ui.macos_notify_only_when_inactive,
             _ => {}
         }
     }

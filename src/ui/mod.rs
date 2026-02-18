@@ -36,6 +36,10 @@ pub fn notify_macos(title: &str, message: &str) -> Result<()> {
     notify_macos_impl(title, message)
 }
 
+pub fn macos_frontmost_app() -> Result<Option<String>> {
+    macos_frontmost_app_impl()
+}
+
 #[cfg(target_os = "macos")]
 fn notify_macos_impl(title: &str, message: &str) -> Result<()> {
     let script = format!("display notification \"{}\" with title \"{}\"", message, title);
@@ -49,7 +53,29 @@ fn notify_macos_impl(title: &str, message: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn macos_frontmost_app_impl() -> Result<Option<String>> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to get name of first application process whose frontmost is true")
+        .output()?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(name))
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 fn notify_macos_impl(_title: &str, _message: &str) -> Result<()> {
     Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_frontmost_app_impl() -> Result<Option<String>> {
+    Ok(None)
 }

@@ -8,6 +8,8 @@ ansi = true
 join_lines = false
 bell_on_stop = true
 macos_notification_on_stop = false
+macos_notify_only_when_inactive = false
+macos_notify_ignore_apps = ["Ghostty", "Terminal", "iTerm2", "WezTerm", "Alacritty", "kitty", "Hyper"]
 
 [colors]
 default_host_palette = [

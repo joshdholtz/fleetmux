@@ -173,9 +173,22 @@ async fn main() -> Result<()> {
                         ui::bell()?;
                     }
                     if state.config.ui.macos_notification_on_stop && stopped > 0 {
-                        let suffix = if stopped == 1 { "" } else { "s" };
-                        let message = format!("{stopped} pane{suffix} stopped updating");
-                        let _ = ui::notify_macos("FleetMux", &message);
+                        let mut allow_notify = true;
+                        if state.config.ui.macos_notify_only_when_inactive {
+                            if let Ok(Some(app)) = ui::macos_frontmost_app() {
+                                allow_notify = !state
+                                    .config
+                                    .ui
+                                    .macos_notify_ignore_apps
+                                    .iter()
+                                    .any(|name| name.eq_ignore_ascii_case(&app));
+                            }
+                        }
+                        if allow_notify {
+                            let suffix = if stopped == 1 { "" } else { "s" };
+                            let message = format!("{stopped} pane{suffix} stopped updating");
+                            let _ = ui::notify_macos("FleetMux", &message);
+                        }
                     }
                 }
             }

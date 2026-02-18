@@ -95,6 +95,8 @@ See `config.example.toml` for a full example. Common fields:
 - `ui.join_lines`: join wrapped lines (tmux `-J`)
 - `ui.bell_on_stop`: ring a terminal bell when a pane stops changing
 - `ui.macos_notification_on_stop`: macOS notification when a pane stops changing
+- `ui.macos_notify_only_when_inactive`: only notify when your terminal app is not focused
+- `ui.macos_notify_ignore_apps`: app names that suppress notifications when frontmost
 - `ssh.connect_timeout_sec`: SSH connection timeout
 - `ssh.path_extra`: extra PATH entries for tmux on remote hosts
 - `local.enabled`: include local tmux in discovery/selection
