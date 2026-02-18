@@ -43,6 +43,18 @@ async fn main() -> Result<()> {
         doctor::run(&config).await?;
         return Ok(());
     }
+    if args.len() > 1 && args[1] == "notify-test" {
+        println!("FleetMux notification test");
+        println!("- Ringing terminal bell...");
+        ui::bell()?;
+        if cfg!(target_os = "macos") {
+            println!("- Sending macOS notification...");
+            let _ = ui::notify_macos("FleetMux", "Test notification from fleetmux");
+        } else {
+            println!("- macOS notifications not available on this OS.");
+        }
+        return Ok(());
+    }
 
     let mut config = if config_path.exists() {
         config::load(&config_path)?

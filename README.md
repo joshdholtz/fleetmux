@@ -77,6 +77,12 @@ fleetmux doctor
 
 Prints host resolution, tmux version, windows/panes, and a sample capture.
 
+```sh
+fleetmux notify-test
+```
+
+Rings the terminal bell and, on macOS, posts a test notification.
+
 ## Configuration
 
 See `config.example.toml` for a full example. Common fields:
