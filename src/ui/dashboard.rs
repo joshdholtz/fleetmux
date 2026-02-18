@@ -68,6 +68,7 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         pane.tracked.host.as_str(),
         pane,
         host_style,
+        border_color,
         state.config.ui.compact,
     );
 
@@ -88,11 +89,22 @@ fn build_title(
     host: &str,
     pane: &crate::model::PaneState,
     host_style: Style,
+    label_color: Color,
     compact: bool,
 ) -> Line<'static> {
-    let pane_id = format!("{}:{}.{}", pane.tracked.session, pane.tracked.window, pane.tracked.pane_id);
-    let mut spans = vec![Span::styled(host.to_string(), host_style), Span::raw(" ")];
-    spans.push(Span::raw(pane_id));
+    let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
+    let pane_id = format_pane_id(&pane.tracked.pane_id);
+    let mut spans = vec![
+        Span::styled(host.to_string(), host_style),
+        Span::raw(" "),
+        Span::raw(session_window),
+    ];
+
+    let label = build_label(pane);
+    if let Some(label) = label {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(label, label_style(label_color)));
+    }
     if compact {
         let status = match pane.status {
             PaneStatus::Down => Some("DOWN"),
@@ -103,25 +115,54 @@ fn build_title(
             spans.push(Span::raw(" "));
             spans.push(Span::raw(format!("[{status}]")));
         }
-        let mut extra = pane.tracked.label.clone();
-        if extra.is_none() {
-            if let Some(capture) = &pane.last_capture {
-                if !capture.title.is_empty() {
-                    extra = Some(capture.title.clone());
-                } else if !capture.command.is_empty() {
-                    extra = Some(capture.command.clone());
-                }
-            }
-        }
-        if let Some(extra) = extra {
-            spans.push(Span::raw(" "));
-            spans.push(Span::raw(extra));
-        }
-    } else if let Some(label) = &pane.tracked.label {
-        spans.push(Span::raw(" "));
-        spans.push(Span::raw(label.clone()));
     }
+
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        format!("({})", pane_id),
+        Style::default().fg(Color::DarkGray),
+    ));
     Line::from(spans)
+}
+
+fn build_label(pane: &crate::model::PaneState) -> Option<String> {
+    if let Some(label) = &pane.tracked.label {
+        if !label.is_empty() {
+            return Some(label.clone());
+        }
+    }
+    if let Some(capture) = &pane.last_capture {
+        if !capture.title.is_empty() {
+            return Some(capture.title.clone());
+        }
+        if !capture.command.is_empty() {
+            return Some(capture.command.clone());
+        }
+    }
+    None
+}
+
+fn label_style(bg: Color) -> Style {
+    let fg = match bg {
+        Color::Yellow
+        | Color::LightYellow
+        | Color::LightGreen
+        | Color::LightBlue
+        | Color::LightCyan
+        | Color::LightMagenta
+        | Color::White
+        | Color::Gray
+        | Color::DarkGray => Color::Black,
+        _ => Color::White,
+    };
+    Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD)
+}
+
+fn format_pane_id(pane_id: &str) -> String {
+    match pane_id.strip_prefix('%') {
+        Some(id) => format!("pane {id}"),
+        None => format!("pane {pane_id}"),
+    }
 }
 
 fn build_content(state: &AppState, index: usize, compact: bool) -> Text<'static> {

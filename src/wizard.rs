@@ -3,7 +3,7 @@ use crate::ssh::HostResolver;
 use crate::tmux::{self, PaneInfo};
 use anyhow::{anyhow, Context, Result};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 #[derive(Clone, Debug)]
@@ -92,6 +92,7 @@ pub fn run_host_setup(path: &Path) -> Result<Config> {
 
 pub fn select_windows(config: &Config) -> Result<Vec<TrackedPane>> {
     let theme = ColorfulTheme::default();
+    let previous = previous_window_keys(&config.tracked);
 
     loop {
         let windows = discover_windows(config, &theme)?;
@@ -99,7 +100,7 @@ pub fn select_windows(config: &Config) -> Result<Vec<TrackedPane>> {
             return Err(anyhow!("No tmux windows discovered"));
         }
 
-        let selections = select_window_items(&windows, &theme)?;
+        let selections = select_window_items(&windows, &previous, &theme)?;
         let tracked = build_tracked_from_windows(&windows, &selections);
 
         if tracked.is_empty() {
@@ -191,6 +192,7 @@ fn discover_windows(config: &Config, theme: &ColorfulTheme) -> Result<Vec<Window
 
 fn select_window_items(
     windows: &[WindowSelection],
+    previous: &HashSet<WindowKey>,
     theme: &ColorfulTheme,
 ) -> Result<Vec<usize>> {
     let items: Vec<String> = windows
@@ -212,9 +214,21 @@ fn select_window_items(
         })
         .collect();
 
+    let defaults: Vec<bool> = windows
+        .iter()
+        .map(|window| {
+            previous.contains(&WindowKey {
+                host: window.host.clone(),
+                session: window.session.clone(),
+                window: window.window,
+            })
+        })
+        .collect();
+
     let selections = MultiSelect::with_theme(theme)
         .with_prompt("Select windows to monitor (total panes must be <= 10)")
         .items(&items)
+        .defaults(&defaults)
         .interact()?;
 
     if selections.is_empty() {
@@ -250,4 +264,22 @@ fn build_tracked_from_windows(
     }
 
     tracked
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+struct WindowKey {
+    host: String,
+    session: String,
+    window: u32,
+}
+
+fn previous_window_keys(tracked: &[TrackedPane]) -> HashSet<WindowKey> {
+    tracked
+        .iter()
+        .map(|pane| WindowKey {
+            host: pane.host.clone(),
+            session: pane.session.clone(),
+            window: pane.window,
+        })
+        .collect()
 }

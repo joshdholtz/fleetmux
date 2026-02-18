@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
 
     let mut config = ensure_hosts(&config_path)?;
     config.tracked = wizard::select_windows(&config)?;
+    config::save(&config_path, &config)?;
 
     let host_colors = build_host_colors(&config);
     let mut state = AppState::new(config.clone(), host_colors);
@@ -206,6 +207,7 @@ async fn reload_config(
     pollers.stop().await;
     let mut new_config = new_config.clone();
     new_config.tracked = tracked;
+    config::save(config_path, &new_config)?;
     *config = new_config.clone();
     let host_colors = build_host_colors(&new_config);
     *state = AppState::new(new_config.clone(), host_colors);

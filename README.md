@@ -66,6 +66,7 @@ Supported color names: `Black`, `Red`, `Green`, `Yellow`, `Blue`, `Magenta`, `Cy
 ## Startup Selection
 
 FleetMux prompts you on every startup to select which session windows to monitor. It then tracks all panes in the chosen windows (up to 10 total panes).
+Previously selected windows are preselected if they still exist.
 
 ## Keyboard Shortcuts
 
