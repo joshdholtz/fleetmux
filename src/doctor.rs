@@ -23,7 +23,7 @@ pub async fn run(config: &Config) -> Result<()> {
                 target
             }
             Err(err) => {
-                println!("Resolve error: {err}");
+                println!("Resolve error: {err:#}");
                 continue;
             }
         };
@@ -31,7 +31,7 @@ pub async fn run(config: &Config) -> Result<()> {
         match crate::ssh::run_ssh_command(&target, &config.ssh, "tmux -V").await {
             Ok(output) => println!("tmux: {}", output),
             Err(err) => {
-                println!("tmux error: {err}");
+                println!("tmux error: {err:#}");
                 continue;
             }
         }
@@ -48,13 +48,13 @@ pub async fn run(config: &Config) -> Result<()> {
                     println!("  {}:{} {}", window.session, window.window, name);
                 }
             }
-            Err(err) => println!("Windows error: {err}"),
+            Err(err) => println!("Windows error: {err:#}"),
         }
 
         let panes = match tmux::list_panes(&target, &config.ssh).await {
             Ok(panes) => panes,
             Err(err) => {
-                println!("Panes error: {err}");
+                println!("Panes error: {err:#}");
                 continue;
             }
         };
@@ -79,7 +79,7 @@ pub async fn run(config: &Config) -> Result<()> {
                         println!("  {line}");
                     }
                 }
-                Err(err) => println!("Capture error: {err}"),
+                Err(err) => println!("Capture error: {err:#}"),
             }
         }
     }

@@ -31,7 +31,7 @@ pub async fn capture_pane(
     );
     let output = ssh::run_ssh_command(target, ssh_cfg, &cmd)
         .await
-        .with_context(|| format!("capture-pane failed for {target}"))?;
+        .with_context(|| format!("capture-pane failed for {target} ({cmd})"))?;
     parse_capture(&output)
 }
 
