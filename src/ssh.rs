@@ -170,5 +170,5 @@ pub fn wrap_remote_cmd(ssh: &SshConfig, remote_cmd: &str) -> String {
         return remote_cmd.to_string();
     }
     let extra = ssh.path_extra.join(":");
-    format!("PATH=\"$PATH:{extra}\" {remote_cmd}")
+    format!("PATH=\"$PATH:{extra}\"; export PATH; {remote_cmd}")
 }
