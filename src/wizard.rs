@@ -3,9 +3,19 @@ use crate::ssh::HostResolver;
 use crate::tmux::{self, PaneInfo};
 use anyhow::{anyhow, Context, Result};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
+use std::collections::HashMap;
 use std::path::Path;
 
-pub fn run(path: &Path) -> Result<Config> {
+#[derive(Clone, Debug)]
+struct WindowSelection {
+    host: String,
+    session: String,
+    window: u32,
+    window_name: String,
+    panes: Vec<PaneInfo>,
+}
+
+pub fn run_host_setup(path: &Path) -> Result<Config> {
     println!("FleetMux setup wizard");
     println!("Config will be saved to {}", path.display());
 
@@ -74,24 +84,43 @@ pub fn run(path: &Path) -> Result<Config> {
         return Err(anyhow!("No hosts configured"));
     }
 
-    let panes = discover_panes(&config, &theme)?;
-    if panes.is_empty() {
-        return Err(anyhow!("No tmux panes discovered"));
-    }
-
-    let selections = select_panes(&panes, &theme)?;
-    let tracked = build_tracked(&panes, &selections, &theme)?;
-    config.tracked = tracked;
-
     crate::config::save(path, &config).context("Unable to save config")?;
     println!("Saved config to {}", path.display());
 
     Ok(config)
 }
 
-fn discover_panes(config: &Config, theme: &ColorfulTheme) -> Result<Vec<(String, PaneInfo)>> {
+pub fn select_windows(config: &Config) -> Result<Vec<TrackedPane>> {
+    let theme = ColorfulTheme::default();
+
+    loop {
+        let windows = discover_windows(config, &theme)?;
+        if windows.is_empty() {
+            return Err(anyhow!("No tmux windows discovered"));
+        }
+
+        let selections = select_window_items(&windows, &theme)?;
+        let tracked = build_tracked_from_windows(&windows, &selections);
+
+        if tracked.is_empty() {
+            return Err(anyhow!("At least one window is required"));
+        }
+
+        if tracked.len() > 10 {
+            println!(
+                "Selected windows contain {} panes. Limit is 10. Select fewer windows.",
+                tracked.len()
+            );
+            continue;
+        }
+
+        return Ok(tracked);
+    }
+}
+
+fn discover_windows(config: &Config, theme: &ColorfulTheme) -> Result<Vec<WindowSelection>> {
     let mut resolver = HostResolver::new();
-    let mut panes = Vec::new();
+    let mut windows = Vec::new();
 
     for host in &config.hosts {
         let target = match resolver.resolve_target_blocking(host, &config.ssh) {
@@ -102,90 +131,123 @@ fn discover_panes(config: &Config, theme: &ColorfulTheme) -> Result<Vec<(String,
             }
         };
 
-        println!("Discovering panes on {} ({})", host.name, target);
-        let mut host_panes = tmux::list_panes_blocking(&target, &config.ssh)
+        println!("Discovering windows on {} ({})", host.name, target);
+
+        let window_names = match tmux::list_windows_blocking(&target, &config.ssh) {
+            Ok(list) => list,
+            Err(err) => {
+                println!("Warning: failed to list windows on {}: {err}", host.name);
+                Vec::new()
+            }
+        };
+
+        let panes = tmux::list_panes_blocking(&target, &config.ssh)
             .with_context(|| format!("Failed to list panes on {}", host.name))?;
-        host_panes.sort_by(|a, b| a.session.cmp(&b.session));
-        for pane in host_panes {
-            panes.push((host.name.clone(), pane));
+
+        let mut panes_by_window: HashMap<(String, u32), Vec<PaneInfo>> = HashMap::new();
+        for pane in panes {
+            panes_by_window
+                .entry((pane.session.clone(), pane.window))
+                .or_default()
+                .push(pane);
+        }
+
+        let mut names_by_window: HashMap<(String, u32), String> = HashMap::new();
+        for window in window_names {
+            names_by_window.insert((window.session, window.window), window.name);
+        }
+
+        for ((session, window), panes) in panes_by_window {
+            let window_name = names_by_window
+                .remove(&(session.clone(), window))
+                .unwrap_or_default();
+            windows.push(WindowSelection {
+                host: host.name.clone(),
+                session,
+                window,
+                window_name,
+                panes,
+            });
         }
     }
 
-    if panes.is_empty() {
+    windows.sort_by(|a, b| {
+        (a.host.as_str(), a.session.as_str(), a.window)
+            .cmp(&(b.host.as_str(), b.session.as_str(), b.window))
+    });
+
+    if windows.is_empty() {
         let retry = Confirm::with_theme(theme)
-            .with_prompt("No panes found. Continue anyway?")
+            .with_prompt("No windows found. Continue anyway?")
             .default(false)
             .interact()?;
         if !retry {
-            return Err(anyhow!("No tmux panes discovered"));
+            return Err(anyhow!("No tmux windows discovered"));
         }
     }
 
-    Ok(panes)
+    Ok(windows)
 }
 
-fn select_panes(
-    panes: &[(String, PaneInfo)],
+fn select_window_items(
+    windows: &[WindowSelection],
     theme: &ColorfulTheme,
 ) -> Result<Vec<usize>> {
-    let items: Vec<String> = panes
+    let items: Vec<String> = windows
         .iter()
-        .map(|(host, pane)| {
-            let mut summary = format!(
-                "{} {}:{} {} {}",
-                host, pane.session, pane.window, pane.pane_id, pane.command
-            );
-            if !pane.title.is_empty() {
-                summary.push_str(" - ");
-                summary.push_str(&pane.title);
-            }
-            summary
+        .map(|window| {
+            let name = if window.window_name.is_empty() {
+                "(unnamed)".to_string()
+            } else {
+                window.window_name.clone()
+            };
+            format!(
+                "{} {}:{} {} ({} panes)",
+                window.host,
+                window.session,
+                window.window,
+                name,
+                window.panes.len()
+            )
         })
         .collect();
 
     let selections = MultiSelect::with_theme(theme)
-        .with_prompt("Select up to 10 panes")
+        .with_prompt("Select windows to monitor (total panes must be <= 10)")
         .items(&items)
         .interact()?;
 
-    if selections.len() > 10 {
-        return Err(anyhow!("Please select at most 10 panes"));
-    }
-
     if selections.is_empty() {
-        return Err(anyhow!("At least one pane is required"));
+        return Err(anyhow!("At least one window is required"));
     }
 
     Ok(selections)
 }
 
-fn build_tracked(
-    panes: &[(String, PaneInfo)],
+fn build_tracked_from_windows(
+    windows: &[WindowSelection],
     selections: &[usize],
-    theme: &ColorfulTheme,
-) -> Result<Vec<TrackedPane>> {
+) -> Vec<TrackedPane> {
     let mut tracked = Vec::new();
 
     for &index in selections {
-        let (host, pane) = &panes[index];
-        let prompt = format!("Label for {} {}:{} {}", host, pane.session, pane.window, pane.pane_id);
-        let label: String = Input::with_theme(theme)
-            .with_prompt(prompt)
-            .allow_empty(true)
-            .interact_text()?;
-
-        tracked.push(TrackedPane {
-            host: host.clone(),
-            session: pane.session.clone(),
-            window: pane.window,
-            pane_id: pane.pane_id.clone(),
-            label: if label.trim().is_empty() {
+        if let Some(window) = windows.get(index) {
+            let label = if window.window_name.is_empty() {
                 None
             } else {
-                Some(label)
-            },
-        });
+                Some(window.window_name.clone())
+            };
+            for pane in &window.panes {
+                tracked.push(TrackedPane {
+                    host: window.host.clone(),
+                    session: pane.session.clone(),
+                    window: pane.window,
+                    pane_id: pane.pane_id.clone(),
+                    label: label.clone(),
+                });
+            }
+        }
     }
 
-    Ok(tracked)
+    tracked
 }

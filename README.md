@@ -24,7 +24,7 @@ cargo build --release
 ./target/release/fleetmux
 ```
 
-On first run, FleetMux launches a setup wizard and writes a config to:
+On first run, FleetMux launches a setup wizard to save your hosts and writes a config to:
 
 ```
 ~/.config/fleetmux/config.toml
@@ -39,7 +39,11 @@ See `config.example.toml` for a complete example. The most common fields:
 - `ssh.connect_timeout_sec`: SSH connection timeout
 - `ssh.path_extra`: extra PATH entries for locating tmux on remote hosts
 - `hosts`: logical hosts with one or more SSH targets
-- `tracked`: tmux panes to monitor
+- `tracked`: optional, FleetMux will prompt for windows on each start
+
+## Startup Selection
+
+FleetMux prompts you on every startup to select which session windows to monitor. It then tracks all panes in the chosen windows (up to 10 total panes).
 
 ## Keyboard Shortcuts
 

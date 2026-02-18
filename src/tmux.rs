@@ -12,6 +12,13 @@ pub struct PaneInfo {
     pub title: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct WindowInfo {
+    pub session: String,
+    pub window: u32,
+    pub name: String,
+}
+
 pub async fn capture_pane(
     target: &str,
     pane_id: &str,
@@ -33,6 +40,13 @@ pub fn list_panes_blocking(target: &str, ssh_cfg: &SshConfig) -> Result<Vec<Pane
     let output = ssh::run_ssh_command_blocking(target, ssh_cfg, cmd)
         .with_context(|| format!("list-panes failed for {target}"))?;
     Ok(parse_pane_list(&output))
+}
+
+pub fn list_windows_blocking(target: &str, ssh_cfg: &SshConfig) -> Result<Vec<WindowInfo>> {
+    let cmd = "tmux list-windows -a -F \"#{session_name}\t#{window_index}\t#{window_name}\"";
+    let output = ssh::run_ssh_command_blocking(target, ssh_cfg, cmd)
+        .with_context(|| format!("list-windows failed for {target}"))?;
+    Ok(parse_window_list(&output))
 }
 
 fn parse_capture(output: &str) -> Result<PaneCapture> {
@@ -76,4 +90,26 @@ fn parse_pane_list(output: &str) -> Vec<PaneInfo> {
         });
     }
     panes
+}
+
+fn parse_window_list(output: &str) -> Vec<WindowInfo> {
+    let mut windows = Vec::new();
+    for line in output.lines() {
+        let mut parts = line.split('\t');
+        let session = match parts.next() {
+            Some(val) if !val.is_empty() => val.to_string(),
+            _ => continue,
+        };
+        let window = match parts.next().and_then(|val| val.parse::<u32>().ok()) {
+            Some(val) => val,
+            None => continue,
+        };
+        let name = parts.next().unwrap_or("").to_string();
+        windows.push(WindowInfo {
+            session,
+            window,
+            name,
+        });
+    }
+    windows
 }

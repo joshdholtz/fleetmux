@@ -23,7 +23,8 @@ use tokio::sync::{mpsc, Mutex};
 #[tokio::main]
 async fn main() -> Result<()> {
     let config_path = config::config_path()?;
-    let mut config = ensure_config(&config_path)?;
+    let mut config = ensure_hosts(&config_path)?;
+    config.tracked = wizard::select_windows(&config)?;
 
     let host_colors = build_host_colors(&config);
     let mut state = AppState::new(config.clone(), host_colors);
@@ -71,16 +72,16 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn ensure_config(path: &Path) -> Result<Config> {
+fn ensure_hosts(path: &Path) -> Result<Config> {
     if path.exists() {
         let config = config::load(path)?;
-        if config.hosts.is_empty() || config.tracked.is_empty() {
-            return wizard::run(path);
+        if config.hosts.is_empty() {
+            return wizard::run_host_setup(path);
         }
         return Ok(config);
     }
 
-    wizard::run(path)
+    wizard::run_host_setup(path)
 }
 
 async fn handle_event(
@@ -101,6 +102,7 @@ async fn handle_event(
             KeyCode::Char('r') => {
                 reload_config(
                     config_path,
+                    terminal,
                     resolver,
                     pollers,
                     update_tx,
@@ -113,6 +115,7 @@ async fn handle_event(
                 edit_config(config_path, terminal)?;
                 reload_config(
                     config_path,
+                    terminal,
                     resolver,
                     pollers,
                     update_tx,
@@ -173,6 +176,7 @@ fn grid_dimensions(count: usize) -> (usize, usize) {
 
 async fn reload_config(
     config_path: &Path,
+    terminal: &mut ui::AppTerminal,
     resolver: &Arc<Mutex<ssh::HostResolver>>,
     pollers: &mut PollerHandle,
     update_tx: &mpsc::Sender<model::PaneUpdate>,
@@ -181,11 +185,15 @@ async fn reload_config(
 ) -> Result<()> {
     let new_config = config::load(config_path)
         .with_context(|| format!("Failed to reload {}", config_path.display()))?;
-    if new_config.hosts.is_empty() || new_config.tracked.is_empty() {
-        return Err(anyhow!("Config missing hosts or tracked panes"));
+    if new_config.hosts.is_empty() {
+        return Err(anyhow!("Config missing hosts"));
     }
 
+    let tracked = select_windows_with_terminal(&new_config, terminal)?;
+
     pollers.stop().await;
+    let mut new_config = new_config.clone();
+    new_config.tracked = tracked;
     *config = new_config.clone();
     let host_colors = build_host_colors(&new_config);
     *state = AppState::new(new_config.clone(), host_colors);
@@ -207,6 +215,16 @@ fn edit_config(path: &Path, terminal: &mut ui::AppTerminal) -> Result<()> {
 
     *terminal = ui::enter_terminal()?;
     Ok(())
+}
+
+fn select_windows_with_terminal(
+    config: &Config,
+    terminal: &mut ui::AppTerminal,
+) -> Result<Vec<config::TrackedPane>> {
+    ui::exit_terminal(terminal)?;
+    let result = wizard::select_windows(config);
+    *terminal = ui::enter_terminal()?;
+    result
 }
 
 async fn take_control(
