@@ -1,0 +1,35 @@
+[ui]
+refresh_ms = 750
+lines = 40
+layout = "auto"
+theme = "default"
+
+[colors]
+default_host_palette = [
+  "Blue",
+  "Cyan",
+  "Green",
+  "Magenta",
+  "Yellow",
+  "LightBlue",
+  "LightGreen",
+]
+
+[ssh]
+connect_timeout_sec = 2
+control_master = true
+control_persist_sec = 600
+
+[[hosts]]
+name = "buildbox"
+targets = ["buildbox.local", "100.64.12.34"]
+strategy = "auto"
+color = "Blue"
+tags = ["dev"]
+
+[[tracked]]
+host = "buildbox"
+session = "main"
+window = 0
+pane_id = "%3"
+label = "Build Logs"
