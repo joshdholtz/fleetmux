@@ -3,7 +3,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ansi_to_tui::IntoText as _;
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 pub fn draw(f: &mut Frame, state: &AppState) {
@@ -71,11 +71,17 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         host_style,
         title_color,
         state.config.ui.compact,
+        focused,
     );
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border_style)
+        .border_type(if focused {
+            BorderType::Double
+        } else {
+            BorderType::Plain
+        })
         .title(title);
 
     let content = build_content(state, index, state.config.ui.compact);
@@ -99,14 +105,17 @@ fn build_title(
     host_style: Style,
     title_color: Color,
     compact: bool,
+    focused: bool,
 ) -> Line<'static> {
     let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
     let pane_id = format_pane_id(&pane.tracked.pane_id);
-    let mut spans = vec![
-        Span::styled(host.to_string(), host_style),
-        Span::raw(" "),
-        Span::styled(session_window, Style::default().fg(title_color)),
-    ];
+    let mut spans = Vec::new();
+    if focused {
+        spans.push(Span::styled("▶ ", host_style));
+    }
+    spans.push(Span::styled(host.to_string(), host_style));
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(session_window, Style::default().fg(title_color)));
 
     let label = build_label(pane);
     if let Some(label) = label {
