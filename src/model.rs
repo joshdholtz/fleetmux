@@ -3,8 +3,6 @@ use ratatui::style::Color;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-pub const ACTIVE_WINDOW: Duration = Duration::from_secs(5);
-pub const IDLE_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug)]
 pub struct HostColors {
@@ -52,14 +50,18 @@ pub struct ActivityTransitions {
     pub active: Vec<usize>,
 }
 
-pub fn activity_state(last_change: Option<Instant>) -> ActivityState {
+pub fn activity_state(
+    last_change: Option<Instant>,
+    active_window: Duration,
+    idle_after: Duration,
+) -> ActivityState {
     let Some(last) = last_change else {
         return ActivityState::Quiet;
     };
     let age = last.elapsed();
-    if age <= ACTIVE_WINDOW {
+    if age <= active_window {
         ActivityState::Active
-    } else if age >= IDLE_AFTER {
+    } else if age >= idle_after {
         ActivityState::Idle
     } else {
         ActivityState::Quiet
@@ -99,11 +101,15 @@ impl PaneState {
         }
     }
 
-    pub fn activity_state(&self) -> ActivityState {
+    pub fn activity_state(
+        &self,
+        active_window: Duration,
+        idle_after: Duration,
+    ) -> ActivityState {
         if self.status != PaneStatus::Ok {
             return ActivityState::Quiet;
         }
-        activity_state(self.last_change)
+        activity_state(self.last_change, active_window, idle_after)
     }
 }
 
@@ -129,7 +135,11 @@ impl AppState {
             .map(PaneState::new)
             .collect();
         let pane_count = panes.len();
-        let activity_states = panes.iter().map(PaneState::activity_state).collect();
+        let (active_window, idle_after) = config.ui.activity_windows();
+        let activity_states = panes
+            .iter()
+            .map(|pane| pane.activity_state(active_window, idle_after))
+            .collect();
         Self {
             config,
             panes,
@@ -184,10 +194,11 @@ impl AppState {
         if self.activity_states.len() != self.panes.len() {
             self.activity_states = vec![ActivityState::Quiet; self.panes.len()];
         }
+        let (active_window, idle_after) = self.config.ui.activity_windows();
         let mut stopped = Vec::new();
         let mut active = Vec::new();
         for (idx, pane) in self.panes.iter().enumerate() {
-            let next_state = pane.activity_state();
+            let next_state = pane.activity_state(active_window, idle_after);
             let prev_state = self.activity_states[idx];
             if prev_state == ActivityState::Active && next_state != ActivityState::Active {
                 stopped.push(idx);

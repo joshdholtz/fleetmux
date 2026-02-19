@@ -93,13 +93,17 @@ See `config.example.toml` for a full example. Common fields:
 - `ui.compact`: hide metadata rows to show more output
 - `ui.ansi`: render ANSI colors/styles
 - `ui.join_lines`: join wrapped lines (tmux `-J`)
+- `ui.activity_active_window_sec`: seconds considered “active” before marking DONE
+- `ui.activity_idle_after_sec`: seconds before showing idle state
 - `ui.bell_on_stop`: ring a terminal bell when a pane needs attention
 - `ui.macos_notification_on_stop`: macOS notification when a pane needs attention
 - `ui.macos_notify_only_when_inactive`: only notify when your terminal app is not focused
 - `ui.macos_notify_ignore_apps`: app names that suppress notifications when frontmost
+- `ui.macos_notify_sender`: optional bundle ID for macOS notifications (used by terminal-notifier)
 - `ui.notify_snooze_sec`: suppress stop-change alerts for N seconds after “take control”
 - macOS notifications require granting Automation access to `osascript`/System Events when prompted.
 - If frontmost app detection fails, FleetMux will still send notifications.
+ - Install `terminal-notifier` for better macOS notifications (avoids Script Editor sender).
 - `ssh.connect_timeout_sec`: SSH connection timeout
 - `ssh.path_extra`: extra PATH entries for tmux on remote hosts
 - `local.enabled`: include local tmux in discovery/selection

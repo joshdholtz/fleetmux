@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -39,10 +40,13 @@ pub struct UiConfig {
     pub compact: bool,
     pub ansi: bool,
     pub join_lines: bool,
+    pub activity_active_window_sec: u64,
+    pub activity_idle_after_sec: u64,
     pub bell_on_stop: bool,
     pub macos_notification_on_stop: bool,
     pub macos_notify_only_when_inactive: bool,
     pub macos_notify_ignore_apps: Vec<String>,
+    pub macos_notify_sender: Option<String>,
     pub notify_snooze_sec: u64,
 }
 
@@ -56,6 +60,8 @@ impl Default for UiConfig {
             compact: false,
             ansi: true,
             join_lines: false,
+            activity_active_window_sec: 12,
+            activity_idle_after_sec: 30,
             bell_on_stop: true,
             macos_notification_on_stop: false,
             macos_notify_only_when_inactive: false,
@@ -69,8 +75,20 @@ impl Default for UiConfig {
                 "kitty".to_string(),
                 "Hyper".to_string(),
             ],
+            macos_notify_sender: None,
             notify_snooze_sec: 20,
         }
+    }
+}
+
+impl UiConfig {
+    pub fn activity_windows(&self) -> (Duration, Duration) {
+        let active = Duration::from_secs(self.activity_active_window_sec.max(1));
+        let mut idle = Duration::from_secs(self.activity_idle_after_sec.max(1));
+        if idle <= active {
+            idle = active + Duration::from_secs(1);
+        }
+        (active, idle)
     }
 }
 

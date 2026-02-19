@@ -44,12 +44,22 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if args.len() > 1 && args[1] == "notify-test" {
+        let config = if config_path.exists() {
+            config::load(&config_path)?
+        } else {
+            Config::default()
+        };
         println!("FleetMux notification test");
         println!("- Ringing terminal bell...");
         ui::bell()?;
         if cfg!(target_os = "macos") {
             println!("- Sending macOS notification...");
-            let _ = ui::notify_macos("FleetMux", "Test notification from fleetmux");
+            let sender = config.ui.macos_notify_sender.as_deref();
+            let _ = ui::notify_macos(
+                "FleetMux",
+                "Test notification from fleetmux",
+                sender,
+            );
         } else {
             println!("- macOS notifications not available on this OS.");
         }
@@ -172,7 +182,7 @@ async fn main() -> Result<()> {
                     let newly_attention =
                         mark_attention_for_indices(&mut state, &transitions.stopped);
                     clear_done_attention_for_indices(&mut state, &transitions.active);
-                    maybe_notify_attention(&mut state, newly_attention)?;
+                    maybe_notify_attention(&mut state, &newly_attention)?;
                 }
             }
         }
@@ -463,16 +473,16 @@ fn toggle_attention_for_focused(state: &mut AppState) {
     }
 }
 
-fn mark_attention_for_indices(state: &mut AppState, indices: &[usize]) -> usize {
+fn mark_attention_for_indices(state: &mut AppState, indices: &[usize]) -> Vec<usize> {
     if state.attention.len() != state.panes.len() {
         state.attention = vec![model::AttentionState::None; state.panes.len()];
     }
-    let mut newly = 0;
+    let mut newly = Vec::new();
     for &index in indices {
         if let Some(flag) = state.attention.get_mut(index) {
             if *flag != model::AttentionState::Done {
                 *flag = model::AttentionState::Done;
-                newly += 1;
+                newly.push(index);
             }
         }
     }
@@ -492,8 +502,8 @@ fn clear_done_attention_for_indices(state: &mut AppState, indices: &[usize]) {
     }
 }
 
-fn maybe_notify_attention(state: &mut AppState, count: usize) -> Result<()> {
-    if count == 0 {
+fn maybe_notify_attention(state: &mut AppState, indices: &[usize]) -> Result<()> {
+    if indices.is_empty() {
         return Ok(());
     }
     let now = std::time::Instant::now();
@@ -526,12 +536,60 @@ fn maybe_notify_attention(state: &mut AppState, count: usize) -> Result<()> {
             };
         }
         if allow_notify {
-            let suffix = if count == 1 { "" } else { "s" };
-            let message = format!("{count} pane{suffix} done");
-            let _ = ui::notify_macos("FleetMux", &message);
+            let message = attention_message(state, indices);
+            let sender = state.config.ui.macos_notify_sender.as_deref();
+            let _ = ui::notify_macos("FleetMux", &message, sender);
         }
     }
     Ok(())
+}
+
+fn attention_message(state: &AppState, indices: &[usize]) -> String {
+    let max = 3usize;
+    let mut lines = Vec::new();
+    for &index in indices.iter().take(max) {
+        if let Some(pane) = state.panes.get(index) {
+            let label = pane
+                .tracked
+                .label
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .or_else(|| {
+                    pane.last_capture.as_ref().and_then(|capture| {
+                        if !capture.title.is_empty() {
+                            Some(capture.title.clone())
+                        } else if !capture.command.is_empty() {
+                            Some(capture.command.clone())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or_else(|| format_pane_id(&pane.tracked.pane_id));
+            let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
+            lines.push(format!(
+                "{} {} {}",
+                pane.tracked.host, session_window, label
+            ));
+        }
+    }
+    let extra = indices.len().saturating_sub(max);
+    if extra > 0 {
+        lines.push(format!("+{extra} more"));
+    }
+    if indices.len() == 1 {
+        format!("Pane done:\n{}", lines.join("\n"))
+    } else {
+        format!("Panes done ({})\n{}", indices.len(), lines.join("\n"))
+    }
+}
+
+fn format_pane_id(pane_id: &str) -> String {
+    pane_id
+        .strip_prefix('%')
+        .map(|id| format!("pane {id}"))
+        .unwrap_or_else(|| format!("pane {pane_id}"))
 }
 
 fn bookmark_index_from_key(ch: char) -> Option<usize> {

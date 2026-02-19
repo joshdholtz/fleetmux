@@ -5,7 +5,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const SPINNER_FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 const BOOKMARK_HEIGHT: u16 = 2;
 
@@ -78,6 +78,7 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
     let host_style = Style::default()
         .fg(title_color)
         .add_modifier(Modifier::BOLD);
+    let (active_window, idle_after) = state.config.ui.activity_windows();
     let title = build_title(
         pane.tracked.host.as_str(),
         pane,
@@ -90,6 +91,8 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
             .get(index)
             .copied()
             .unwrap_or(crate::model::AttentionState::None),
+        active_window,
+        idle_after,
     );
 
     let block = Block::default()
@@ -102,7 +105,7 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         })
         .title(title);
 
-    let content = build_content(state, index, state.config.ui.compact);
+    let content = build_content(state, index, state.config.ui.compact, active_window, idle_after);
     let inner_height = area.height.saturating_sub(2) as usize;
     let scroll = content
         .lines
@@ -125,6 +128,8 @@ fn build_title(
     compact: bool,
     focused: bool,
     attention: crate::model::AttentionState,
+    active_window: Duration,
+    idle_after: Duration,
 ) -> Line<'static> {
     let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
     let pane_id = format_pane_id(&pane.tracked.pane_id);
@@ -147,7 +152,7 @@ fn build_title(
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         ));
     }
-    let indicator = activity_indicator(pane);
+    let indicator = activity_indicator(pane, active_window, idle_after);
     if !indicator.is_empty() {
         let indicator_style = indicator_style(pane, &indicator);
         spans.push(Span::raw(" "));
@@ -230,10 +235,16 @@ struct Content {
     lines: usize,
 }
 
-fn build_content(state: &AppState, index: usize, compact: bool) -> Content {
+fn build_content(
+    state: &AppState,
+    index: usize,
+    compact: bool,
+    active_window: Duration,
+    idle_after: Duration,
+) -> Content {
     let pane = &state.panes[index];
     if state.config.ui.ansi {
-        let raw = build_raw_content(state, pane, index, compact);
+        let raw = build_raw_content(state, pane, index, compact, active_window, idle_after);
         let line_count = raw.lines().count().max(1);
         let text = raw.into_text().unwrap_or_else(|_| Text::from(raw));
         return Content {
@@ -249,7 +260,7 @@ fn build_content(state: &AppState, index: usize, compact: bool) -> Content {
         PaneStatus::Down => "DOWN",
         PaneStatus::Stale => "STALE",
     };
-    let indicator = activity_indicator(pane);
+    let indicator = activity_indicator(pane, active_window, idle_after);
     if compact {
         if pane.status != PaneStatus::Ok {
             let status_line = format!("Status: {status_label}");
@@ -342,6 +353,8 @@ fn build_raw_content(
     pane: &crate::model::PaneState,
     _index: usize,
     compact: bool,
+    active_window: Duration,
+    idle_after: Duration,
 ) -> String {
     let mut raw = String::new();
     let status_label = match pane.status {
@@ -349,7 +362,7 @@ fn build_raw_content(
         PaneStatus::Down => "DOWN",
         PaneStatus::Stale => "STALE",
     };
-    let indicator = activity_indicator(pane);
+    let indicator = activity_indicator(pane, active_window, idle_after);
 
     if compact {
         if pane.status != PaneStatus::Ok {
@@ -423,8 +436,12 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
-fn activity_indicator(pane: &crate::model::PaneState) -> String {
-    match pane.activity_state() {
+fn activity_indicator(
+    pane: &crate::model::PaneState,
+    active_window: Duration,
+    idle_after: Duration,
+) -> String {
+    match pane.activity_state(active_window, idle_after) {
         crate::model::ActivityState::Active => spinner_frame().to_string(),
         crate::model::ActivityState::Idle => "idle".to_string(),
         crate::model::ActivityState::Quiet => String::new(),
