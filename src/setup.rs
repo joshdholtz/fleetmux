@@ -145,6 +145,7 @@ pub struct SetupState {
     pane_index: usize,
     setting_index: usize,
     selection: HashSet<PaneKey>,
+    selection_order: Vec<PaneKey>,
     bookmarks: HashSet<PaneKey>,
     host_data: HashMap<String, HostData>,
     modal: Option<Modal>,
@@ -159,7 +160,7 @@ pub struct SetupState {
 impl SetupState {
     pub fn new(config: Config) -> Self {
         let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel();
-        let selection = config
+        let selection_order: Vec<PaneKey> = config
             .tracked
             .iter()
             .map(|pane| PaneKey {
@@ -169,6 +170,7 @@ impl SetupState {
                 pane_id: pane.pane_id.clone(),
             })
             .collect();
+        let selection = selection_order.iter().cloned().collect();
         let bookmarks = config
             .bookmarks
             .iter()
@@ -187,6 +189,7 @@ impl SetupState {
             pane_index: 0,
             setting_index: 0,
             selection,
+            selection_order,
             bookmarks,
             host_data: HashMap::new(),
             modal: None,
@@ -946,12 +949,14 @@ impl SetupState {
         };
         if self.selection.contains(&key) {
             self.selection.remove(&key);
+            self.selection_order.retain(|item| item != &key);
         } else {
             if self.selection.len() >= MAX_PANES {
                 self.status = Some(format!("Limit is {MAX_PANES} panes."));
                 return;
             }
-            self.selection.insert(key);
+            self.selection.insert(key.clone());
+            self.selection_order.push(key);
         }
     }
 
@@ -1053,8 +1058,9 @@ impl SetupState {
             return Ok(SetupAction::None);
         }
         let tracked: Vec<TrackedPane> = self
-            .selection
+            .selection_order
             .iter()
+            .filter(|key| self.selection.contains(*key))
             .map(|key| TrackedPane {
                 host: key.host.clone(),
                 session: key.session.clone(),
