@@ -133,7 +133,11 @@ fn build_title(
 ) -> Line<'static> {
     let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
     let pane_id = format_pane_id(&pane.tracked.pane_id);
-    let title_bg = if focused { Some(Color::DarkGray) } else { None };
+    let title_bg = if focused {
+        Some(Color::Rgb(30, 30, 30))
+    } else {
+        None
+    };
     let mut spans = Vec::new();
     if focused {
         spans.push(title_span("▶ ", host_style, title_bg));
