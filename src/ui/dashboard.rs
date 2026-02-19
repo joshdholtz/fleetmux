@@ -112,8 +112,14 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         .saturating_sub(inner_height)
         .try_into()
         .unwrap_or(0u16);
+    let content_style = if focused {
+        Style::default().bg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
     let paragraph = Paragraph::new(content.text)
         .block(block)
+        .style(content_style)
         .scroll((scroll, 0))
         .wrap(Wrap { trim: false });
 
