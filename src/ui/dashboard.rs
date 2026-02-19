@@ -112,14 +112,8 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         .saturating_sub(inner_height)
         .try_into()
         .unwrap_or(0u16);
-    let content_style = if focused {
-        Style::default().bg(Color::DarkGray)
-    } else {
-        Style::default()
-    };
     let paragraph = Paragraph::new(content.text)
         .block(block)
-        .style(content_style)
         .scroll((scroll, 0))
         .wrap(Wrap { trim: false });
 
@@ -139,48 +133,56 @@ fn build_title(
 ) -> Line<'static> {
     let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
     let pane_id = format_pane_id(&pane.tracked.pane_id);
+    let title_bg = if focused { Some(Color::DarkGray) } else { None };
     let mut spans = Vec::new();
     if focused {
-        spans.push(Span::styled("▶ ", host_style));
+        spans.push(title_span("▶ ", host_style, title_bg));
     }
-    spans.push(Span::styled(host.to_string(), host_style));
-    spans.push(Span::raw(" "));
-    spans.push(Span::styled(session_window, Style::default().fg(title_color)));
+    spans.push(title_span(host.to_string(), host_style, title_bg));
+    spans.push(title_raw(" ", title_bg));
+    spans.push(title_span(
+        session_window,
+        Style::default().fg(title_color),
+        title_bg,
+    ));
     if attention != crate::model::AttentionState::None {
         let (label, color) = match attention {
             crate::model::AttentionState::Manual => ("● ATTN", Color::Yellow),
             crate::model::AttentionState::Done => ("● DONE", Color::Green),
             crate::model::AttentionState::None => ("", Color::Yellow),
         };
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(
+        spans.push(title_raw(" ", title_bg));
+        spans.push(title_span(
             label.to_string(),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
+            title_bg,
         ));
     }
     let indicator = activity_indicator(pane, active_window, idle_after);
     if !indicator.is_empty() {
         let indicator_style = indicator_style(pane, &indicator);
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(indicator, indicator_style));
+        spans.push(title_raw(" ", title_bg));
+        spans.push(title_span(indicator, indicator_style, title_bg));
     }
 
     let label = build_label(pane);
     if let Some(label) = label {
-        spans.push(Span::raw(" — "));
-        spans.push(Span::styled(
+        spans.push(title_raw(" — ", title_bg));
+        spans.push(title_span(
             label,
             Style::default().fg(title_color).add_modifier(Modifier::BOLD),
+            title_bg,
         ));
     }
     if compact {
         if let Some(age) = last_change_age(pane) {
-            spans.push(Span::raw(" · "));
-            spans.push(Span::styled(
+            spans.push(title_raw(" · ", title_bg));
+            spans.push(title_span(
                 format!("chg {age}"),
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
+                title_bg,
             ));
         }
     }
@@ -191,15 +193,16 @@ fn build_title(
             PaneStatus::Ok => None,
         };
         if let Some(status) = status {
-            spans.push(Span::raw(" "));
-            spans.push(Span::raw(format!("[{status}]")));
+            spans.push(title_raw(" ", title_bg));
+            spans.push(title_raw(format!("[{status}]"), title_bg));
         }
     }
 
-    spans.push(Span::raw(" "));
-    spans.push(Span::styled(
+    spans.push(title_raw(" ", title_bg));
+    spans.push(title_span(
         format!("({})", pane_id),
         Style::default().fg(Color::DarkGray),
+        title_bg,
     ));
     Line::from(spans)
 }
@@ -234,6 +237,22 @@ fn title_color(border_color: Color, colors: &crate::model::HostColors) -> Color 
     } else {
         colors.base
     }
+}
+
+fn title_span(text: impl Into<String>, style: Style, bg: Option<Color>) -> Span<'static> {
+    let mut style = style;
+    if let Some(bg) = bg {
+        style = style.bg(bg);
+    }
+    Span::styled(text.into(), style)
+}
+
+fn title_raw(text: impl Into<String>, bg: Option<Color>) -> Span<'static> {
+    let mut style = Style::default();
+    if let Some(bg) = bg {
+        style = style.bg(bg);
+    }
+    Span::styled(text.into(), style)
 }
 
 struct Content {
