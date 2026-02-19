@@ -62,7 +62,13 @@ struct PaneSelection {
 #[derive(Debug, Clone)]
 struct SettingItem {
     label: &'static str,
-    enabled: bool,
+    kind: SettingKind,
+}
+
+#[derive(Debug, Clone)]
+enum SettingKind {
+    Toggle(bool),
+    Number(u64, &'static str),
 }
 
 #[derive(Debug, Clone)]
@@ -275,8 +281,20 @@ impl SetupState {
             KeyCode::Char('q') => return Ok(SetupAction::Cancel),
             KeyCode::Char('s') => return self.save_selection(),
             KeyCode::Tab => self.cycle_focus(),
-            KeyCode::Left | KeyCode::Char('h') => self.focus_left(),
-            KeyCode::Right | KeyCode::Char('l') => self.focus_right(),
+            KeyCode::Left | KeyCode::Char('h') => {
+                if self.focus == Focus::Settings {
+                    self.adjust_setting(-1);
+                } else {
+                    self.focus_left();
+                }
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                if self.focus == Focus::Settings {
+                    self.adjust_setting(1);
+                } else {
+                    self.focus_right();
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => self.move_up(),
             KeyCode::Down | KeyCode::Char('j') => self.move_down(),
             KeyCode::Enter => self.handle_enter(),
@@ -392,7 +410,7 @@ impl SetupState {
             .constraints([
                 Constraint::Percentage(50),
                 Constraint::Percentage(35),
-                Constraint::Length(9),
+                Constraint::Length(12),
             ])
             .split(area);
 
@@ -476,17 +494,31 @@ impl SetupState {
         let items: Vec<ListItem> = settings
             .iter()
             .map(|item| {
-                let value = if item.enabled { "on" } else { "off" };
-                let value_style = if item.enabled {
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(ACCENT_DIM)
-                };
-                let line = Line::from(vec![
-                    Span::raw(format!("{}: ", item.label)),
-                    Span::styled(value.to_string(), value_style),
-                ]);
-                ListItem::new(line)
+                match item.kind {
+                    SettingKind::Toggle(enabled) => {
+                        let value = if enabled { "on" } else { "off" };
+                        let value_style = if enabled {
+                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(ACCENT_DIM)
+                        };
+                        let line = Line::from(vec![
+                            Span::raw(format!("{}: ", item.label)),
+                            Span::styled(value.to_string(), value_style),
+                        ]);
+                        ListItem::new(line)
+                    }
+                    SettingKind::Number(value, suffix) => {
+                        let line = Line::from(vec![
+                            Span::raw(format!("{}: ", item.label)),
+                            Span::styled(
+                                format!("{value}{suffix}"),
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            ),
+                        ]);
+                        ListItem::new(line)
+                    }
+                }
             })
             .collect();
 
@@ -506,6 +538,7 @@ impl SetupState {
         spans.extend(hint("Tab", "focus"));
         spans.extend(hint("Arrows", "navigate"));
         spans.extend(hint("Space", "toggle"));
+        spans.extend(hint("←/→", "adjust"));
         spans.extend(hint("m", "bookmark"));
         spans.extend(hint("a", "add"));
         spans.extend(hint("e", "edit"));
@@ -946,27 +979,35 @@ impl SetupState {
         vec![
             SettingItem {
                 label: "Compact mode",
-                enabled: self.config.ui.compact,
+                kind: SettingKind::Toggle(self.config.ui.compact),
             },
             SettingItem {
                 label: "ANSI rendering",
-                enabled: self.config.ui.ansi,
+                kind: SettingKind::Toggle(self.config.ui.ansi),
             },
             SettingItem {
                 label: "Join wrapped lines",
-                enabled: self.config.ui.join_lines,
+                kind: SettingKind::Toggle(self.config.ui.join_lines),
             },
             SettingItem {
                 label: "Bell on stop",
-                enabled: self.config.ui.bell_on_stop,
+                kind: SettingKind::Toggle(self.config.ui.bell_on_stop),
             },
             SettingItem {
                 label: "macOS notify on stop",
-                enabled: self.config.ui.macos_notification_on_stop,
+                kind: SettingKind::Toggle(self.config.ui.macos_notification_on_stop),
             },
             SettingItem {
                 label: "Notify only when inactive",
-                enabled: self.config.ui.macos_notify_only_when_inactive,
+                kind: SettingKind::Toggle(self.config.ui.macos_notify_only_when_inactive),
+            },
+            SettingItem {
+                label: "Done after",
+                kind: SettingKind::Number(self.config.ui.activity_active_window_sec, "s"),
+            },
+            SettingItem {
+                label: "Idle after",
+                kind: SettingKind::Number(self.config.ui.activity_idle_after_sec, "s"),
             },
         ]
     }
@@ -981,6 +1022,23 @@ impl SetupState {
                 !self.config.ui.macos_notification_on_stop,
             5 => self.config.ui.macos_notify_only_when_inactive =
                 !self.config.ui.macos_notify_only_when_inactive,
+            _ => {}
+        }
+    }
+
+    fn adjust_setting(&mut self, delta: i64) {
+        match self.setting_index {
+            6 => {
+                let next = adjust_u64(self.config.ui.activity_active_window_sec, delta, 1, 600);
+                self.config.ui.activity_active_window_sec = next;
+                if self.config.ui.activity_idle_after_sec <= next {
+                    self.config.ui.activity_idle_after_sec = next + 1;
+                }
+            }
+            7 => {
+                let next = adjust_u64(self.config.ui.activity_idle_after_sec, delta, 2, 600);
+                self.config.ui.activity_idle_after_sec = next;
+            }
             _ => {}
         }
     }
@@ -1287,6 +1345,15 @@ fn color_index_from_name(name: &str) -> usize {
         .iter()
         .position(|option| option.eq_ignore_ascii_case(name))
         .unwrap_or(0)
+}
+
+fn adjust_u64(value: u64, delta: i64, min: u64, max: u64) -> u64 {
+    let next = if delta.is_negative() {
+        value.saturating_sub(delta.wrapping_abs() as u64)
+    } else {
+        value.saturating_add(delta as u64)
+    };
+    next.clamp(min, max)
 }
 
 fn panel_block(title: &str, focused: bool) -> Block<'static> {
