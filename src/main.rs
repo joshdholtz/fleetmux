@@ -168,40 +168,11 @@ async fn main() -> Result<()> {
             _ = tick.tick() => {
                 if matches!(mode, Mode::Dashboard) {
                     state.refresh_stale();
-                    let stopped = state.update_activity_states();
-                    let now = std::time::Instant::now();
-                    let snoozed = state
-                        .notify_snooze_until
-                        .map(|until| now < until)
-                        .unwrap_or(false);
-                    if !snoozed {
-                        if state.config.ui.bell_on_stop && stopped > 0 {
-                            ui::bell()?;
-                        }
-                        if state.config.ui.macos_notification_on_stop && stopped > 0 {
-                            let mut allow_notify = true;
-                            if state.config.ui.macos_notify_only_when_inactive {
-                                allow_notify = match ui::macos_frontmost_app() {
-                                    Ok(Some(app)) => !state
-                                        .config
-                                        .ui
-                                        .macos_notify_ignore_apps
-                                        .iter()
-                                        .any(|name| name.eq_ignore_ascii_case(&app)),
-                                    _ => true,
-                                };
-                            }
-                            if allow_notify {
-                                let suffix = if stopped == 1 { "" } else { "s" };
-                                let message = format!("{stopped} pane{suffix} stopped updating");
-                                let _ = ui::notify_macos("FleetMux", &message);
-                            }
-                        }
-                    } else if let Some(until) = state.notify_snooze_until {
-                        if now >= until {
-                            state.notify_snooze_until = None;
-                        }
-                    }
+                    let transitions = state.update_activity_states();
+                    let newly_attention =
+                        mark_attention_for_indices(&mut state, &transitions.stopped);
+                    clear_done_attention_for_indices(&mut state, &transitions.active);
+                    maybe_notify_attention(&mut state, newly_attention)?;
                 }
             }
         }
@@ -332,10 +303,10 @@ fn clear_attention_on_focus(state: &mut AppState, prev: usize) {
         return;
     }
     if state.attention.len() != state.panes.len() {
-        state.attention = vec![false; state.panes.len()];
+        state.attention = vec![model::AttentionState::None; state.panes.len()];
     }
     if let Some(flag) = state.attention.get_mut(state.focused) {
-        *flag = false;
+        *flag = model::AttentionState::None;
     }
 }
 
@@ -479,12 +450,88 @@ fn toggle_attention_for_focused(state: &mut AppState) {
         return;
     }
     if state.attention.len() != count {
-        state.attention = vec![false; count];
+        state.attention = vec![model::AttentionState::None; count];
     }
     let index = state.focused.min(count - 1);
     if let Some(flag) = state.attention.get_mut(index) {
-        *flag = !*flag;
+        *flag = match *flag {
+            model::AttentionState::None => model::AttentionState::Manual,
+            model::AttentionState::Manual | model::AttentionState::Done => {
+                model::AttentionState::None
+            }
+        };
     }
+}
+
+fn mark_attention_for_indices(state: &mut AppState, indices: &[usize]) -> usize {
+    if state.attention.len() != state.panes.len() {
+        state.attention = vec![model::AttentionState::None; state.panes.len()];
+    }
+    let mut newly = 0;
+    for &index in indices {
+        if let Some(flag) = state.attention.get_mut(index) {
+            if *flag != model::AttentionState::Done {
+                *flag = model::AttentionState::Done;
+                newly += 1;
+            }
+        }
+    }
+    newly
+}
+
+fn clear_done_attention_for_indices(state: &mut AppState, indices: &[usize]) {
+    if state.attention.len() != state.panes.len() {
+        state.attention = vec![model::AttentionState::None; state.panes.len()];
+    }
+    for &index in indices {
+        if let Some(flag) = state.attention.get_mut(index) {
+            if *flag == model::AttentionState::Done {
+                *flag = model::AttentionState::None;
+            }
+        }
+    }
+}
+
+fn maybe_notify_attention(state: &mut AppState, count: usize) -> Result<()> {
+    if count == 0 {
+        return Ok(());
+    }
+    let now = std::time::Instant::now();
+    let snoozed = state
+        .notify_snooze_until
+        .map(|until| now < until)
+        .unwrap_or(false);
+    if snoozed {
+        if let Some(until) = state.notify_snooze_until {
+            if now >= until {
+                state.notify_snooze_until = None;
+            }
+        }
+        return Ok(());
+    }
+    if state.config.ui.bell_on_stop {
+        ui::bell()?;
+    }
+    if state.config.ui.macos_notification_on_stop {
+        let mut allow_notify = true;
+        if state.config.ui.macos_notify_only_when_inactive {
+            allow_notify = match ui::macos_frontmost_app() {
+                Ok(Some(app)) => !state
+                    .config
+                    .ui
+                    .macos_notify_ignore_apps
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&app)),
+                _ => true,
+            };
+        }
+        if allow_notify {
+            let suffix = if count == 1 { "" } else { "s" };
+            let message = format!("{count} pane{suffix} done");
+            let _ = ui::notify_macos("FleetMux", &message);
+        }
+    }
+    Ok(())
 }
 
 fn bookmark_index_from_key(ch: char) -> Option<usize> {

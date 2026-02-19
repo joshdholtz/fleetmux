@@ -85,7 +85,11 @@ fn draw_tile(f: &mut Frame, state: &AppState, index: usize, area: Rect, focused:
         title_color,
         state.config.ui.compact,
         focused,
-        state.attention.get(index).copied().unwrap_or(false),
+        state
+            .attention
+            .get(index)
+            .copied()
+            .unwrap_or(crate::model::AttentionState::None),
     );
 
     let block = Block::default()
@@ -120,7 +124,7 @@ fn build_title(
     title_color: Color,
     compact: bool,
     focused: bool,
-    attention: bool,
+    attention: crate::model::AttentionState,
 ) -> Line<'static> {
     let session_window = format!("{}:{}", pane.tracked.session, pane.tracked.window);
     let pane_id = format_pane_id(&pane.tracked.pane_id);
@@ -131,13 +135,16 @@ fn build_title(
     spans.push(Span::styled(host.to_string(), host_style));
     spans.push(Span::raw(" "));
     spans.push(Span::styled(session_window, Style::default().fg(title_color)));
-    if attention {
+    if attention != crate::model::AttentionState::None {
+        let (label, color) = match attention {
+            crate::model::AttentionState::Manual => ("● ATTN", Color::Yellow),
+            crate::model::AttentionState::Done => ("● DONE", Color::Green),
+            crate::model::AttentionState::None => ("", Color::Yellow),
+        };
         spans.push(Span::raw(" "));
         spans.push(Span::styled(
-            "● ATTN".to_string(),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
+            label.to_string(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
         ));
     }
     let indicator = activity_indicator(pane);

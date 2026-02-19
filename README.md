@@ -93,8 +93,8 @@ See `config.example.toml` for a full example. Common fields:
 - `ui.compact`: hide metadata rows to show more output
 - `ui.ansi`: render ANSI colors/styles
 - `ui.join_lines`: join wrapped lines (tmux `-J`)
-- `ui.bell_on_stop`: ring a terminal bell when a pane stops changing
-- `ui.macos_notification_on_stop`: macOS notification when a pane stops changing
+- `ui.bell_on_stop`: ring a terminal bell when a pane needs attention
+- `ui.macos_notification_on_stop`: macOS notification when a pane needs attention
 - `ui.macos_notify_only_when_inactive`: only notify when your terminal app is not focused
 - `ui.macos_notify_ignore_apps`: app names that suppress notifications when frontmost
 - `ui.notify_snooze_sec`: suppress stop-change alerts for N seconds after “take control”
@@ -133,7 +133,7 @@ persist across restarts.
 - `r`: reload config
 - `e`: edit config
 - `n`: set label for focused pane
-- `!`: mark attention on focused pane
+- `!`: mark attention on focused pane (turns to DONE when it stops changing)
 - `b`: toggle bookmark for focused pane
 - `1-9`/`0`: jump to bookmarks 1–10
 - `s`: open setup
@@ -145,5 +145,6 @@ persist across restarts.
 ## Notes
 
 - Dashboard mode is strictly read‑only; no interactive SSH sessions are held.
+- When a pane stops changing it is auto‑marked as DONE and can trigger notifications.
 - “Take control” runs `ssh -t` and returns to FleetMux on exit.
 - If tmux isn’t on PATH for non‑interactive shells, set `ssh.path_extra`.

@@ -40,6 +40,18 @@ pub enum ActivityState {
     Quiet,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttentionState {
+    None,
+    Manual,
+    Done,
+}
+
+pub struct ActivityTransitions {
+    pub stopped: Vec<usize>,
+    pub active: Vec<usize>,
+}
+
 pub fn activity_state(last_change: Option<Instant>) -> ActivityState {
     let Some(last) = last_change else {
         return ActivityState::Quiet;
@@ -105,7 +117,7 @@ pub struct AppState {
     pub host_colors: HashMap<String, HostColors>,
     pub activity_states: Vec<ActivityState>,
     pub notify_snooze_until: Option<Instant>,
-    pub attention: Vec<bool>,
+    pub attention: Vec<AttentionState>,
 }
 
 impl AppState {
@@ -127,7 +139,7 @@ impl AppState {
             host_colors,
             activity_states,
             notify_snooze_until: None,
-            attention: vec![false; pane_count],
+            attention: vec![AttentionState::None; pane_count],
         }
     }
 
@@ -168,20 +180,24 @@ impl AppState {
         }
     }
 
-    pub fn update_activity_states(&mut self) -> usize {
+    pub fn update_activity_states(&mut self) -> ActivityTransitions {
         if self.activity_states.len() != self.panes.len() {
             self.activity_states = vec![ActivityState::Quiet; self.panes.len()];
         }
-        let mut stopped = 0;
+        let mut stopped = Vec::new();
+        let mut active = Vec::new();
         for (idx, pane) in self.panes.iter().enumerate() {
             let next_state = pane.activity_state();
             let prev_state = self.activity_states[idx];
             if prev_state == ActivityState::Active && next_state != ActivityState::Active {
-                stopped += 1;
+                stopped.push(idx);
+            }
+            if prev_state != ActivityState::Active && next_state == ActivityState::Active {
+                active.push(idx);
             }
             self.activity_states[idx] = next_state;
         }
-        stopped
+        ActivityTransitions { stopped, active }
     }
 
     pub fn is_active(&self, index: usize) -> bool {
